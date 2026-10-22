@@ -515,64 +515,82 @@ function buildTailoredAgenda({
 
   // 1. Personalized "Tell Me About Yourself" Introduction (Tailored to actual resume)
   const skillsSnippet = candidateSkills.slice(0, 3).join(', ');
-  const projectSnippet = candidateProjects[0]?.name ? `your project "${candidateProjects[0].name}"` : 'your technical projects';
+  const hasActualProject = candidateProjects.length > 0 && candidateProjects[0]?.name;
+  const projectSnippet = hasActualProject
+    ? `your project "${candidateProjects[0].name}"`
+    : 'your key software development and academic coursework projects';
 
   const introQuestion = {
     id: 'intro-q-1',
     category: 'Resume & Professional Introduction',
     topic: 'Candidate Introduction',
     difficulty: 'Beginner',
-    context: `Education: ${candidateDegree} at ${candidateCollege} | Skills: ${skillsSnippet}`,
-    questionText: `Hello ${candidateName}, welcome to your interview. To start, please introduce yourself, focusing on your background in ${candidateDegree} at ${candidateCollege}, your core skills in ${skillsSnippet}, and what you built in ${projectSnippet}.`,
+    context: `Education: ${candidateDegree} at ${candidateCollege} | Skills: ${skillsSnippet || 'Software Engineering'}`,
+    questionText: `Hello ${candidateName}, welcome to your interview. To start, please introduce yourself, focusing on your background in ${candidateDegree} at ${candidateCollege}, your core skills in ${skillsSnippet || 'software development'}, and what you built in ${projectSnippet}.`,
     expectedConcepts: ['clear structure', 'academic background', 'mention of core skills', 'project context', 'career motivation'],
-    modelAnswer: `I am a ${candidateDegree} student at ${candidateCollege} passionate about software engineering and ${targetRole} positions. My primary technical stack includes ${skillsSnippet}. Recently, I developed ${projectSnippet}, where I tackled real-world challenges in application architecture and data handling. I am eager to apply my foundation in software design to production-grade engineering problems.`,
+    modelAnswer: `I am a ${candidateDegree} student at ${candidateCollege} passionate about software engineering and ${targetRole} positions. My primary technical stack includes ${skillsSnippet || 'modern programming'}. Recently, I developed ${projectSnippet}, where I tackled real-world challenges in application architecture and data handling. I am eager to apply my foundation in software design to production-grade engineering problems.`,
     hint: 'Structure your response chronologically: 1. Your academic foundation -> 2. Key technical skills you actively use -> 3. The flagship project you built -> 4. What excites you about this role.'
   };
 
   // 2. Project-Based Questions (Deep analysis of ACTUAL candidate projects)
   const projectQuestions = [];
-  candidateProjects.forEach((proj, idx) => {
-    const tech = (proj.technologies && proj.technologies.length > 0) ? proj.technologies : ['software engineering'];
-    const techStr = tech.slice(0, 2).join(' and ');
+  if (candidateProjects.length > 0) {
+    candidateProjects.forEach((proj, idx) => {
+      const tech = (proj.technologies && proj.technologies.length > 0) ? proj.technologies : ['software engineering'];
+      const techStr = tech.slice(0, 2).join(' and ');
 
-    projectQuestions.push({
-      id: `proj-q-${idx + 1}-arch`,
-      category: 'Project Architecture & Problem Solving',
-      topic: `${proj.name} Architecture`,
-      difficulty: difficulty === 'Advanced' ? 'Hard' : 'Medium',
-      context: `Project: "${proj.name}" | Stack: ${tech.join(', ')}`,
-      questionText: `In your resume, you highlighted your project "${proj.name}" utilizing ${techStr}. Can you explain the core problem this project was designed to solve, and describe the end-to-end architecture you implemented?`,
-      expectedConcepts: ['problem statement', 'architecture components', 'data flow', 'user interaction', tech[0] || 'technology choice'],
-      modelAnswer: `In "${proj.name}", the primary problem was automating manual operations to improve throughput and tracking. I designed a tiered architecture separating presentation, business logic, and persistence. Using ${techStr}, incoming requests are validated, processed according to domain business rules, and persisted, ensuring auditability and minimal latency.`,
-      hint: 'Outline: 1. The specific pain point or user requirement -> 2. The architectural tiers (client, server, data layer) -> 3. How data flows when an action is triggered.'
+      projectQuestions.push({
+        id: `proj-q-${idx + 1}-arch`,
+        category: 'Project Architecture & Problem Solving',
+        topic: `${proj.name} Architecture`,
+        difficulty: difficulty === 'Advanced' ? 'Hard' : 'Medium',
+        context: `Project: "${proj.name}" | Stack: ${tech.join(', ')}`,
+        questionText: `In your resume, you highlighted your project "${proj.name}" utilizing ${techStr}. Can you explain the core problem this project was designed to solve, and describe the end-to-end architecture you implemented?`,
+        expectedConcepts: ['problem statement', 'architecture components', 'data flow', 'user interaction', tech[0] || 'technology choice'],
+        modelAnswer: `In "${proj.name}", the primary problem was automating manual operations to improve throughput and tracking. I designed a tiered architecture separating presentation, business logic, and persistence. Using ${techStr}, incoming requests are validated, processed according to domain business rules, and persisted, ensuring auditability and minimal latency.`,
+        hint: 'Outline: 1. The specific pain point or user requirement -> 2. The architectural tiers (client, server, data layer) -> 3. How data flows when an action is triggered.'
+      });
+
+      if (tech.some(t => t.toLowerCase().includes('servicenow') || t.toLowerCase().includes('flow') || t.toLowerCase().includes('rule'))) {
+        projectQuestions.push({
+          id: `proj-q-${idx + 1}-tech-sn`,
+          category: 'Project Deep-Dive (ServiceNow)',
+          topic: 'ServiceNow Implementation in Project',
+          difficulty: 'Medium',
+          context: `Project: "${proj.name}"`,
+          questionText: `You mentioned ServiceNow components in "${proj.name}". Can you explain how you designed the workflow automation—specifically your use of Business Rules, Flow Designer, or Client Scripts?`,
+          expectedConcepts: ['workflow automation', 'business rules', 'client scripts vs server side', 'flow designer trigger'],
+          modelAnswer: 'In this project, I used Flow Designer to orchestrate multi-step approval workflows upon ticket creation. For data validation before database insertion, I implemented "before" Business Rules to verify fields server-side, preventing malformed records from persisting while keeping Client Scripts lightweight for browser interactions.',
+          hint: 'Detail which specific ServiceNow tables and rules you created, and why server-side validation was critical.'
+        });
+      } else {
+        projectQuestions.push({
+          id: `proj-q-${idx + 1}-tech-data`,
+          category: 'Project Technical Decisions',
+          topic: `${proj.name} Implementation & Bottlenecks`,
+          difficulty: 'Medium',
+          context: `Project: "${proj.name}"`,
+          questionText: `In "${proj.name}", what was the most significant technical bottleneck or edge-case you encountered during development, and how did you resolve it?`,
+          expectedConcepts: ['concrete bottleneck', 'root cause analysis', 'troubleshooting steps', 'measurable resolution'],
+          modelAnswer: 'A key bottleneck we encountered was slow query response times and race conditions during simultaneous user updates. By analyzing query execution plans, adding composite indexes on foreign keys, and implementing proper transaction boundaries, we reduced query latency by over 40% and prevented data inconsistency.',
+          hint: 'State a real bug or performance issue (e.g. database locking, state synchronization, or API timeout) and walk through how you diagnosed and fixed it.'
+        });
+      }
     });
-
-    if (tech.some(t => t.toLowerCase().includes('servicenow') || t.toLowerCase().includes('flow') || t.toLowerCase().includes('rule'))) {
-      projectQuestions.push({
-        id: `proj-q-${idx + 1}-tech-sn`,
-        category: 'Project Deep-Dive (ServiceNow)',
-        topic: 'ServiceNow Implementation in Project',
-        difficulty: 'Medium',
-        context: `Project: "${proj.name}"`,
-        questionText: `You mentioned ServiceNow components in "${proj.name}". Can you explain how you designed the workflow automation—specifically your use of Business Rules, Flow Designer, or Client Scripts?`,
-        expectedConcepts: ['workflow automation', 'business rules', 'client scripts vs server side', 'flow designer trigger'],
-        modelAnswer: 'In this project, I used Flow Designer to orchestrate multi-step approval workflows upon ticket creation. For data validation before database insertion, I implemented "before" Business Rules to verify fields server-side, preventing malformed records from persisting while keeping Client Scripts lightweight for browser interactions.',
-        hint: 'Detail which specific ServiceNow tables and rules you created, and why server-side validation was critical.'
-      });
-    } else if (tech.some(t => t.toLowerCase().includes('java') || t.toLowerCase().includes('spring') || t.toLowerCase().includes('sql'))) {
-      projectQuestions.push({
-        id: `proj-q-${idx + 1}-tech-data`,
-        category: 'Project Technical Decisions',
-        topic: `${proj.name} Data Flow`,
-        difficulty: 'Medium',
-        context: `Project: "${proj.name}"`,
-        questionText: `In "${proj.name}", what was the most significant technical bottleneck or edge-case you encountered during development, and how did you resolve it?`,
-        expectedConcepts: ['concrete bottleneck', 'root cause analysis', 'troubleshooting steps', 'measurable resolution'],
-        modelAnswer: 'A key bottleneck we encountered was slow query response times and race conditions during simultaneous user updates. By analyzing query execution plans, adding composite indexes on foreign keys, and implementing proper transaction boundaries, we reduced query latency by over 40% and prevented data inconsistency.',
-        hint: 'State a real bug or performance issue (e.g. database locking, state synchronization, or API timeout) and walk through how you diagnosed and fixed it.'
-      });
-    }
-  });
+  } else {
+    // If candidate resume did not specify distinct project titles, ask an open project overview
+    projectQuestions.push({
+      id: 'proj-q-general-candidate',
+      category: 'Project Architecture & Problem Solving',
+      topic: 'Software Development Project Experience',
+      difficulty: difficulty === 'Advanced' ? 'Hard' : 'Medium',
+      context: `Target Role: ${targetRole}`,
+      questionText: `Can you walk me through a major software development project, academic assignment, or coursework application you have built? Explain the core problem you solved, the technology stack you chose, and how data flowed through the system.`,
+      expectedConcepts: ['problem statement', 'architecture layers', 'technology choices', 'data persistence or api design', 'challenges'],
+      modelAnswer: 'In my project, I identified an operational problem and designed an application using modern software patterns with clear separation between user interface, backend processing, and data storage.',
+      hint: 'Outline: 1. The problem or requirement -> 2. The architectural tiers (frontend, backend, database) -> 3. How data flows when an action is triggered.'
+    });
+  }
 
   // 3. Technical Questions (Strictly from verified candidate skills in resume)
   const technicalQuestions = [];
@@ -603,6 +621,34 @@ function buildTailoredAgenda({
         hint: TECHNICAL_TOPIC_KNOWLEDGE['java collections'].hint
       });
     }
+  }
+
+  if (skillsLower.some(s => s.includes('python'))) {
+    technicalQuestions.push({
+      id: 'tech-q-python-features',
+      category: 'Technical Knowledge (Python)',
+      topic: 'Python Memory & Data Structures',
+      difficulty: 'Medium',
+      context: 'Verified Skill: Python',
+      questionText: 'In Python, what is the difference between mutable and immutable types? How do list comprehensions differ in performance from standard for-loops, and what is the Global Interpreter Lock (GIL)?',
+      expectedConcepts: ['mutable vs immutable (list/dict vs str/tuple)', 'pass by object reference', 'gil restricts thread execution to one core', 'list comprehension memory efficiency'],
+      modelAnswer: 'In Python, mutable objects (lists, dicts, sets) can be altered in place, whereas immutable objects (strings, tuples, ints) produce new objects when modified. The GIL (Global Interpreter Lock) is a mutex that prevents multiple native threads from executing Python bytecodes simultaneously on multicore CPUs, making multiprocessing preferred over multithreading for CPU-bound tasks.',
+      hint: 'Recall mutable types like lists vs immutable tuples, and how the GIL impacts thread concurrency.'
+    });
+  }
+
+  if (skillsLower.some(s => s.includes('react') || s.includes('javascript') || s.includes('node') || s.includes('typescript'))) {
+    technicalQuestions.push({
+      id: 'tech-q-frontend-js',
+      category: 'Technical Knowledge (JavaScript & React)',
+      topic: 'Asynchronous JS & State Lifecycle',
+      difficulty: 'Medium',
+      context: 'Verified Skill: JavaScript / React',
+      questionText: 'Can you explain the JavaScript Event Loop, Call Stack, and Task/Microtask Queue? In React, why must state never be mutated directly, and how does the Virtual DOM reconciliation work?',
+      expectedConcepts: ['call stack and web apis', 'microtask queue promises vs macrotask settimeout', 'immutability triggers rerender', 'virtual dom diffing algorithm'],
+      modelAnswer: 'The JavaScript runtime uses a single-threaded Call Stack. Asynchronous callbacks wait in the Task or Microtask queue until the Call Stack is empty. In React, mutating state directly bypasses setter functions, preventing React from scheduling reconciliation and causing stale UI states.',
+      hint: 'Walk through how Promises run in the Microtask queue, and why immutability allows React to detect state changes.'
+    });
   }
 
   if (skillsLower.some(s => s.includes('servicenow'))) {

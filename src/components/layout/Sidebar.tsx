@@ -38,7 +38,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { label: 'Career Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { label: 'Resume & JD Matcher', path: '/upload', icon: UploadCloud, badge: 'ATS Studio' },
     { label: 'AI Voice Interview', path: '/interview', icon: Mic, isVoice: true, badge: 'Voice AI' },
-    { label: 'GitHub Verification', path: '/github-verify', icon: GithubIcon, badge: 'Code API' },
     { label: 'Skill Gap Analysis', path: '/skill-gap', icon: Target },
     { label: 'Career & Job Matching', path: '/jobs', icon: Briefcase },
     { label: 'AI Career Advisor', path: '/advisor', icon: Bot, isAi: true },

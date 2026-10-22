@@ -31,7 +31,10 @@ import {
   ShieldCheck,
   Settings,
   Layers,
-  ArrowRight
+  ArrowRight,
+  UploadCloud,
+  Check,
+  Briefcase
 } from 'lucide-react';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -93,6 +96,14 @@ export const AIInterview: React.FC = () => {
   const [activeHint, setActiveHint] = useState<string | null>(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
 
+  // Active Candidate Resume Grounding State
+  const [activeResume, setActiveResume] = useState<any>(() => {
+    return StorageService.getResumeAnalysis();
+  });
+  const [isUploadingResume, setIsUploadingResume] = useState<boolean>(false);
+  const [resumeUploadError, setResumeUploadError] = useState<string>('');
+  const resumeFileInputRef = useRef<HTMLInputElement>(null);
+
   // Past Evaluations History
   const [pastEvaluations, setPastEvaluations] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -101,6 +112,60 @@ export const AIInterview: React.FC = () => {
   const recognitionRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
   const turnStartTimeRef = useRef<number>(Date.now());
+
+  // Synchronize candidate resume on mount
+  useEffect(() => {
+    const saved = StorageService.getResumeAnalysis();
+    if (saved) {
+      setActiveResume(saved);
+      if (saved.targetRole) setTargetRole(saved.targetRole);
+    } else {
+      ApiService.getCurrentResume()
+        .then((res) => {
+          if (res.success && res.resume) {
+            try {
+              const parsed = JSON.parse(res.resume.analysis_json);
+              setActiveResume(parsed);
+              StorageService.setResumeAnalysis(parsed);
+              if (parsed.targetRole) setTargetRole(parsed.targetRole);
+            } catch (e) {}
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleUploadResumeFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['pdf', 'docx', 'txt', 'md'].includes(ext || '')) {
+      showToast('Please select a valid PDF, DOCX, or TXT resume document.', 'error');
+      return;
+    }
+
+    try {
+      setIsUploadingResume(true);
+      setResumeUploadError('');
+      showToast('Analyzing candidate resume for AI Voice Interview...', 'info');
+      const res = await ApiService.uploadResume(file, targetRole);
+      if (res.success && res.analysis) {
+        setActiveResume(res.analysis);
+        StorageService.setResumeAnalysis(res.analysis);
+        if (res.analysis.targetRole) setTargetRole(res.analysis.targetRole);
+        showToast(
+          `Resume uploaded & parsed! Found ${res.analysis.parsedData?.projects?.length || 0} projects and ${res.analysis.parsedData?.skills?.allSkillsFound?.length || 0} skills.`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      setResumeUploadError(err.message || 'Failed to upload resume document.');
+      showToast(err.message || 'Resume upload failed', 'error');
+    } finally {
+      setIsUploadingResume(false);
+      if (resumeFileInputRef.current) resumeFileInputRef.current.value = '';
+    }
+  };
 
   // 1. Initialize Speech Recognition Support
   useEffect(() => {
@@ -284,12 +349,14 @@ export const AIInterview: React.FC = () => {
     setTurns([]);
 
     try {
+      const currentResumeData = activeResume || StorageService.getResumeAnalysis();
       const res = await ApiService.startInteractiveInterview({
         targetRole,
         interviewType: interviewType === 'Mixed' ? 'Mixed Interview' : `${interviewType} Interview`,
         experienceLevel,
         difficulty,
-        totalQuestions
+        totalQuestions,
+        resumeData: currentResumeData || undefined
       });
 
       if (res.success) {
@@ -514,9 +581,139 @@ export const AIInterview: React.FC = () => {
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Configure Your Interview Session</h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    Customize your interview parameters. The AI agent adapts its technical depth, behavioral questions, and follow-ups to your choices.
+                    The AI Voice Interviewer analyzes your uploaded resume to ask personalized questions regarding your actual projects and skills.
                   </p>
                 </div>
+
+                {/* Hidden File Input for Resume Upload */}
+                <input
+                  ref={resumeFileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md"
+                  className="hidden"
+                  onChange={handleUploadResumeFile}
+                />
+
+                {/* ============================================================= */}
+                {/* CANDIDATE RESUME GROUNDING CARD                               */}
+                {/* ============================================================= */}
+                {activeResume ? (
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200/50">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-slate-900">
+                              {activeResume.parsedData?.contact?.name || user?.name || 'Candidate Resume Grounded'}
+                            </h3>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Resume Connected
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600">
+                            {activeResume.parsedData?.education?.[0]?.degree || user?.department || 'B.Tech / Computer Science'} &bull; {activeResume.parsedData?.education?.[0]?.college || user?.college || 'College of Engineering'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={isUploadingResume}
+                        onClick={() => resumeFileInputRef.current?.click()}
+                        className="text-xs font-bold text-indigo-700 bg-white hover:bg-slate-50 border-slate-200 shrink-0 self-start sm:self-auto shadow-xs"
+                      >
+                        <UploadCloud className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>{isUploadingResume ? 'Analyzing...' : 'Change / Upload Resume'}</span>
+                      </Button>
+                    </div>
+
+                    {/* Detected Projects from resume */}
+                    <div className="space-y-1.5 text-xs">
+                      <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                        Grounded Candidate Projects ({activeResume.parsedData?.projects?.length || 0}):
+                      </span>
+                      {activeResume.parsedData?.projects && activeResume.parsedData.projects.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {activeResume.parsedData.projects.map((proj: any, idx: number) => (
+                            <span key={idx} className="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 font-semibold text-slate-800 shadow-2xs flex items-center gap-1.5">
+                              <Briefcase className="w-3 h-3 text-emerald-600" />
+                              <span>{proj.name}</span>
+                              {proj.technologies && proj.technologies.length > 0 && (
+                                <span className="text-[10px] text-slate-400 font-normal">({proj.technologies.slice(0, 2).join(', ')})</span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">No specific project titles isolated in resume. Open software architecture questions will be asked.</p>
+                      )}
+                    </div>
+
+                    {/* Detected Skills from resume */}
+                    {activeResume.parsedData?.skills?.allSkillsFound && activeResume.parsedData.skills.allSkillsFound.length > 0 && (
+                      <div className="space-y-1 text-xs pt-1">
+                        <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                          Grounded Candidate Skills ({activeResume.parsedData.skills.allSkillsFound.length}):
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {activeResume.parsedData.skills.allSkillsFound.slice(0, 8).map((skill: string) => (
+                            <span key={skill} className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100/70 text-emerald-900">
+                              {skill}
+                            </span>
+                          ))}
+                          {activeResume.parsedData.skills.allSkillsFound.length > 8 && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-medium text-slate-500 bg-white border border-slate-200">
+                              +{activeResume.parsedData.skills.allSkillsFound.length - 8} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-emerald-900 bg-white/70 p-2 rounded-lg border border-emerald-200/60 font-medium">
+                      🎯 <strong>Resume Grounding Active:</strong> The AI Voice Interviewer will specifically ask you to introduce your background, defend what you built in <strong>"{activeResume.parsedData?.projects?.[0]?.name || 'your projects'}"</strong>, and test your verified technical skills.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                        <UploadCloud className="w-4 h-4" />
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-amber-950">
+                          Upload Candidate Resume for Personalized Voice Interviewing
+                        </h3>
+                        <p className="text-xs text-amber-900">
+                          Upload your resume (PDF, DOCX, or TXT) so the AI Interviewer can analyze your actual projects, tech stack, and coursework to generate personalized, non-generic questions.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 flex items-center gap-3">
+                      <Button
+                        type="button"
+                        onClick={() => resumeFileInputRef.current?.click()}
+                        disabled={isUploadingResume}
+                        className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-2"
+                      >
+                        <UploadCloud className="w-4 h-4" />
+                        <span>{isUploadingResume ? 'Analyzing Resume...' : 'Upload Candidate Resume'}</span>
+                      </Button>
+                      <span className="text-[11px] text-slate-500">Supports PDF, DOCX, TXT (Max 10MB)</span>
+                    </div>
+
+                    {resumeUploadError && (
+                      <p className="text-xs text-rose-600 font-semibold">{resumeUploadError}</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>

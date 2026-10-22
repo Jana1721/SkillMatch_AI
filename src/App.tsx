@@ -52,8 +52,8 @@ export default function App() {
               <Route path="/upload" element={<UploadResume />} />
               <Route path="/resume" element={<ResumeAnalyzer />} />
 
-              {/* Module 4: GitHub Project Link Verification */}
-              <Route path="/github-verify" element={<GitHubVerification />} />
+              {/* GitHub Project Verification integrated directly into Resume Analysis */}
+              <Route path="/github-verify" element={<Navigate to="/upload" replace />} />
 
               {/* Module 5: AI Voice Interview Agent */}
               <Route path="/interview" element={<AIInterview />} />
@@ -82,7 +82,7 @@ export default function App() {
 
               {/* Route Aliases */}
               <Route path="/jd-matcher" element={<UploadResume />} />
-              <Route path="/projects" element={<GitHubVerification />} />
+              <Route path="/projects" element={<Navigate to="/upload" replace />} />
               <Route path="/skills" element={<Navigate to="/skill-gap" replace />} />
               <Route path="/college-industry" element={<Navigate to="/skill-gap" replace />} />
               <Route path="/roles" element={<Navigate to="/jobs" replace />} />

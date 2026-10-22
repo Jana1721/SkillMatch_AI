@@ -23,6 +23,7 @@ import {
 } from '../services/emailService.js';
 import { authenticateUser, signToken, requireAuth, requireAdmin } from '../services/authMiddleware.js';
 import { dbRun, dbGet, dbAll, generateCredentialId, verifyStudentAgainstCollegeRoster } from '../db/database.js';
+import { verifyResumeGitHubLinks, verifySingleGitHubRepo } from '../services/githubVerifier.js';
 
 const router = express.Router();
 
@@ -1672,6 +1673,13 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
     const parsedDoc = await parseDocument(req.file.buffer, req.file.originalname, req.file.mimetype);
     const analysis = analyzeResume(parsedDoc.rawText, targetRole, req.file.originalname);
 
+    // Live verification of GitHub project links embedded in the candidate resume
+    const githubVerification = await verifyResumeGitHubLinks(
+      parsedDoc.rawText,
+      analysis.parsedData?.skills?.allSkillsFound || []
+    );
+    analysis.githubVerification = githubVerification;
+
     // Persist under authenticated user ID
     await dbRun(
       `INSERT OR REPLACE INTO resumes (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json)
@@ -1715,6 +1723,13 @@ router.post('/resume/analyze-text', async (req, res) => {
 
     const analysis = analyzeResume(text, targetRole, sourceName);
 
+    // Live verification of GitHub project links embedded in the candidate resume
+    const githubVerification = await verifyResumeGitHubLinks(
+      text,
+      analysis.parsedData?.skills?.allSkillsFound || []
+    );
+    analysis.githubVerification = githubVerification;
+
     await dbRun(
       `INSERT OR REPLACE INTO resumes (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1738,6 +1753,31 @@ router.post('/resume/analyze-text', async (req, res) => {
   } catch (err) {
     console.error('[Analyze Text Error]', err);
     return res.status(400).json({ error: err.message || 'Failed to analyze resume text' });
+  }
+});
+
+// 2b. Verify an individual GitHub URL on demand from the Resume Analysis page
+router.post('/resume/verify-github', async (req, res) => {
+  try {
+    const { url, repoUrl } = req.body;
+    const targetUrl = url || repoUrl;
+    if (!targetUrl) {
+      return res.status(400).json({ error: 'GitHub repository URL is required.' });
+    }
+
+    const resumeRow = await dbGet('SELECT * FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
+    let candidateSkills = [];
+    if (resumeRow && resumeRow.analysis_json) {
+      try {
+        const parsed = JSON.parse(resumeRow.analysis_json);
+        candidateSkills = parsed?.parsedData?.skills?.allSkillsFound || [];
+      } catch (e) {}
+    }
+
+    const verification = await verifySingleGitHubRepo(targetUrl, candidateSkills);
+    return res.json({ success: true, verification });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'GitHub verification failed.' });
   }
 });
 
@@ -1921,25 +1961,60 @@ router.post('/interview/interactive/start', async (req, res) => {
       experienceLevel = 'Fresher',
       difficulty = 'Intermediate',
       totalQuestions = 5,
-      focusTopics = []
+      focusTopics = [],
+      resumeData: clientResumeData
     } = req.body;
 
-    // Fetch user's current resume
-    const resumeRow = await dbGet('SELECT * FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
     let resumeData = null;
 
-    if (resumeRow && resumeRow.analysis_json) {
-      resumeData = JSON.parse(resumeRow.analysis_json);
-    } else {
-      // Create baseline candidate profile from authenticated user info
+    // 1. Prioritize explicit resumeData provided in request body
+    if (clientResumeData && (clientResumeData.parsedData || clientResumeData.scores || clientResumeData.skills || clientResumeData.projects)) {
+      if (clientResumeData.parsedData) {
+        resumeData = clientResumeData;
+      } else {
+        resumeData = {
+          id: clientResumeData.id || `res-client-${Date.now()}`,
+          targetRole: clientResumeData.targetRole || targetRole,
+          parsedData: {
+            contact: clientResumeData.contact || { name: req.user?.name || 'Candidate', email: req.user?.email },
+            education: clientResumeData.education || [{ degree: req.user?.degree || 'Computer Science & Engineering', college: req.user?.college || 'Engineering College' }],
+            skills: clientResumeData.skills || { allSkillsFound: [] },
+            projects: clientResumeData.projects || []
+          }
+        };
+      }
+    }
+
+    // 2. Fetch user's current resume from database
+    if (!resumeData) {
+      const resumeRow = await dbGet('SELECT * FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
+      if (resumeRow && resumeRow.analysis_json) {
+        try {
+          resumeData = JSON.parse(resumeRow.analysis_json);
+        } catch (e) {}
+      }
+    }
+
+    // 3. Fallback: check most recently uploaded resume in system
+    if (!resumeData) {
+      const anyRecentResume = await dbGet('SELECT * FROM resumes ORDER BY created_at DESC LIMIT 1');
+      if (anyRecentResume && anyRecentResume.analysis_json) {
+        try {
+          resumeData = JSON.parse(anyRecentResume.analysis_json);
+        } catch (e) {}
+      }
+    }
+
+    // 4. Baseline candidate profile from authenticated user info (without fake project hallucination)
+    if (!resumeData || !resumeData.parsedData) {
       resumeData = {
-        id: 'usr-prof-' + req.user.id,
+        id: 'usr-prof-' + (req.user?.id || 'candidate'),
         targetRole,
         parsedData: {
-          contact: { name: req.user.name, email: req.user.email },
-          education: [{ degree: req.user.degree || 'B.Tech Computer Science', college: req.user.college || 'Engineering College' }],
-          skills: { allSkillsFound: ['Java', 'SQL', 'Data Structures', 'OOP', 'Git', 'Problem Solving'] },
-          projects: [{ name: 'Campus Placement Portal', technologies: ['Java', 'Spring Boot', 'SQL'] }]
+          contact: { name: req.user?.name || 'Candidate', email: req.user?.email },
+          education: [{ degree: req.user?.degree || 'Computer Science & Engineering', college: req.user?.college || 'Engineering College' }],
+          skills: { allSkillsFound: ['Data Structures', 'OOP', 'SQL', 'Git', 'Problem Solving'] },
+          projects: []
         }
       };
     }

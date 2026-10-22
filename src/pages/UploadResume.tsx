@@ -19,8 +19,16 @@ import {
   GraduationCap,
   TrendingUp,
   FileSearch,
-  BookOpen
+  BookOpen,
+  ExternalLink,
+  Star,
+  GitFork,
+  Code,
+  ShieldCheck,
+  Mic,
+  Lock
 } from 'lucide-react';
+import { GithubIcon } from '../components/common/GithubIcon';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
@@ -53,12 +61,56 @@ export const UploadResume: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>('');
 
   // Results state
-  const [resumeAnalysisResult, setResumeAnalysisResult] = useState<any>(null);
+  const [resumeAnalysisResult, setResumeAnalysisResult] = useState<any>(() => {
+    return StorageService.getResumeAnalysis();
+  });
   const [jdAnalysisResult, setJdAnalysisResult] = useState<any>(null);
   const [jdMatchResult, setJdMatchResult] = useState<any>(null);
 
+  // Manual GitHub repo verification state
+  const [manualGithubUrl, setManualGithubUrl] = useState<string>('');
+  const [isVerifyingGithub, setIsVerifyingGithub] = useState<boolean>(false);
+  const [manualGithubError, setManualGithubError] = useState<string>('');
+
   // Active view tab for results
   const [activeResultTab, setActiveResultTab] = useState<'resume' | 'jd' | 'match'>('resume');
+
+  const handleVerifyManualGithub = async () => {
+    if (!manualGithubUrl.trim()) {
+      setManualGithubError('Please enter a GitHub repository URL.');
+      return;
+    }
+    try {
+      setIsVerifyingGithub(true);
+      setManualGithubError('');
+      const res = await ApiService.verifyGitHubRepo(manualGithubUrl.trim());
+      if (res.success && res.verification) {
+        setResumeAnalysisResult((prev: any) => {
+          const currentVerification = prev?.githubVerification || { detected: true, repositories: [] };
+          const updatedRepos = [res.verification, ...(currentVerification.repositories || [])];
+          const updated = {
+            ...prev,
+            githubVerification: {
+              ...currentVerification,
+              detected: true,
+              hasRepos: true,
+              repositories: updatedRepos,
+              summary: `${updatedRepos.filter((r: any) => r.isAvailable).length} of ${updatedRepos.length} repository link(s) verified.`
+            }
+          };
+          StorageService.setResumeAnalysis(updated);
+          return updated;
+        });
+        showToast('GitHub repository verified successfully!', 'success');
+        setManualGithubUrl('');
+      }
+    } catch (err: any) {
+      setManualGithubError(err.message || 'GitHub verification failed.');
+      showToast(err.message || 'Verification failed.', 'error');
+    } finally {
+      setIsVerifyingGithub(false);
+    }
+  };
 
   const sampleJD = `Role: Associate Software Engineer / Backend Developer
 Key Responsibilities:
@@ -623,6 +675,243 @@ Requirements:
                     </li>
                   </ul>
                 </Card>
+              </div>
+
+              {/* Extracted Projects from Resume */}
+              {resumeAnalysisResult.parsedData?.projects && resumeAnalysisResult.parsedData.projects.length > 0 && (
+                <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                        <Briefcase className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                          Candidate Projects Detected from Resume ({resumeAnalysisResult.parsedData.projects.length})
+                        </h3>
+                        <p className="text-xs text-slate-500">Grounded evidence for technical interviews and evaluation</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {resumeAnalysisResult.parsedData.projects.map((proj: any, idx: number) => (
+                      <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-sm text-slate-900">{proj.name}</h4>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
+                            {proj.complexity || 'Project'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 line-clamp-2">
+                          {proj.problemSolved || proj.rawContent?.slice(0, 120)}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {(proj.technologies || []).map((t: string) => (
+                            <span key={t} className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white border border-slate-200 text-slate-700">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* ================================================================= */}
+              {/* GITHUB PROJECT & CODE REPOSITORY VERIFICATION SECTION            */}
+              {/* ================================================================= */}
+              <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-sm">
+                      <GithubIcon className="w-5 h-5 text-white fill-white" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                          GitHub Project & Repository Verification
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          Live API Verified
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Live verification confirming project link correctness, repository availability, and code evidence.
+                      </p>
+                    </div>
+                  </div>
+
+                  {resumeAnalysisResult.githubVerification?.repositories?.length > 0 && (
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg self-start sm:self-auto">
+                      ✓ {resumeAnalysisResult.githubVerification.repositories.filter((r: any) => r.isAvailable).length} Available Project(s)
+                    </span>
+                  )}
+                </div>
+
+                {/* Detected / Verified Repositories List */}
+                {resumeAnalysisResult.githubVerification?.repositories && resumeAnalysisResult.githubVerification.repositories.length > 0 ? (
+                  <div className="space-y-3">
+                    {resumeAnalysisResult.githubVerification.repositories.map((repo: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className={`p-4 rounded-xl border transition-all ${
+                          repo.isAvailable
+                            ? 'bg-emerald-50/30 border-emerald-200'
+                            : 'bg-rose-50/30 border-rose-200'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-slate-900 font-mono">
+                              {repo.owner}/{repo.repo}
+                            </span>
+                            <a
+                              href={repo.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1 text-xs font-semibold"
+                            >
+                              <span>View on GitHub</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {repo.isAvailable ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Verified & Available</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                <span>{repo.status || 'Repository Unavailable'}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {repo.isAvailable && repo.repoDetails && (
+                          <div className="space-y-2 pt-2 border-t border-slate-200/60 text-xs">
+                            <p className="text-slate-600 italic">
+                              "{repo.repoDetails.description || 'Repository active with public codebase.'}"
+                            </p>
+
+                            <div className="flex flex-wrap items-center gap-3 text-slate-500 font-medium">
+                              <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                <Code className="w-3 h-3 text-indigo-600" />
+                                <strong className="text-slate-800">{repo.repoDetails.language}</strong>
+                              </span>
+                              <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                <Star className="w-3 h-3 text-amber-500" />
+                                <span>{repo.repoDetails.stars} Stars</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                <GitFork className="w-3 h-3 text-slate-500" />
+                                <span>{repo.repoDetails.forks} Forks</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                                <span>{repo.repoDetails.hasReadme ? 'README Documentation Verified' : 'No README'}</span>
+                              </span>
+                            </div>
+
+                            {repo.skillsMatched && repo.skillsMatched.length > 0 && (
+                              <div className="flex items-center gap-1.5 pt-1">
+                                <span className="text-[11px] font-bold text-slate-500 uppercase">Matches Resume Skills:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {repo.skillsMatched.map((s: string) => (
+                                    <span key={s} className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                      {s}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {!repo.isAvailable && (
+                          <p className="text-xs text-rose-700 pt-1 font-medium">
+                            {repo.message || 'Repository link could not be verified on GitHub. Check URL spelling or verify if the repository is public.'}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* No GitHub Repositories Detected in Resume */
+                  <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wide">
+                          No GitHub Repository Links Detected in Resume
+                        </h4>
+                        <p className="text-xs text-amber-800 mt-0.5">
+                          Adding verified GitHub repository URLs for your projects significantly increases recruiter trust. You can verify a repository link below:
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Input to verify project repository on demand */}
+                <div className="pt-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Verify Project Repository Link (e.g. https://github.com/username/project)
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="url"
+                      value={manualGithubUrl}
+                      onChange={(e) => {
+                        setManualGithubUrl(e.target.value);
+                        setManualGithubError('');
+                      }}
+                      placeholder="https://github.com/username/project-repo"
+                      className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-none focus:bg-white focus:border-indigo-600"
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleVerifyManualGithub}
+                      disabled={isVerifyingGithub}
+                      className="py-2.5 px-4 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white shrink-0 flex items-center gap-1.5"
+                    >
+                      <GithubIcon className="w-4 h-4 fill-white" />
+                      <span>{isVerifyingGithub ? 'Verifying...' : 'Verify Project Link'}</span>
+                    </Button>
+                  </div>
+                  {manualGithubError && (
+                    <p className="text-xs text-rose-600 mt-1 font-medium">{manualGithubError}</p>
+                  )}
+                </div>
+              </Card>
+
+              {/* Action Banner: Launch AI Voice Interview */}
+              <div className="p-6 bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 text-white rounded-2xl shadow-lg border border-indigo-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Mic className="w-5 h-5 text-indigo-400" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-indigo-300">
+                      AI Voice Interview Grounded in Your Resume
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-300 max-w-xl">
+                    Our AI Voice Interviewer will conduct a live conversational interview asking you specifically about your projects and skills.
+                  </p>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => navigate('/interview')}
+                  className="py-3 px-6 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shrink-0 flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                >
+                  <Mic className="w-4 h-4" />
+                  <span>Start AI Voice Interview</span>
+                </Button>
               </div>
             </div>
           )}

@@ -425,6 +425,7 @@ export const ApiService = {
     difficulty?: string;
     totalQuestions?: number;
     focusTopics?: string[];
+    resumeData?: any;
   }) {
     const res = await fetch('/api/interview/interactive/start', {
       method: 'POST',
@@ -434,6 +435,19 @@ export const ApiService = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to start interview' }));
       throw new Error(err.error || 'Failed to start interview');
+    }
+    return res.json();
+  },
+
+  async verifyGitHubRepo(url: string) {
+    const res = await fetch('/api/resume/verify-github', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ url })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'GitHub verification failed' }));
+      throw new Error(err.error || 'GitHub verification failed');
     }
     return res.json();
   },
