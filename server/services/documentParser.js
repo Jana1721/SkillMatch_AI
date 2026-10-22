@@ -10,11 +10,83 @@ if (typeof globalThis.DOMMatrix === 'undefined') {
 }
 
 const require = createRequire(import.meta.url);
-let pdfParse = null;
+let pdfModule = null;
 try {
-  pdfParse = require('pdf-parse');
+  pdfModule = require('pdf-parse');
 } catch (e) {
   console.warn('[DocumentParser] pdf-parse deferred load:', e.message);
+}
+
+/**
+ * Universal PDF Text Extractor
+ * Compatible with pdf-parse v2 (PDFParse class), v1 (callable function), and stream fallbacks
+ */
+async function extractPdfText(fileBuffer) {
+  let extractedText = '';
+
+  // 1. Try pdf-parse v2 (class PDFParse)
+  const PDFParseClass = pdfModule?.PDFParse || (pdfModule && typeof pdfModule === 'function' && pdfModule.prototype?.getText ? pdfModule : null);
+  if (PDFParseClass) {
+    let parser = null;
+    try {
+      parser = new PDFParseClass({ data: fileBuffer });
+      const result = await parser.getText();
+      if (result && typeof result.text === 'string' && result.text.trim()) {
+        extractedText = result.text;
+      }
+    } catch (classErr) {
+      console.warn('[DocumentParser] PDFParse class failed, trying fallback:', classErr.message);
+    } finally {
+      if (parser && typeof parser.destroy === 'function') {
+        try { await parser.destroy(); } catch (e) {}
+      }
+    }
+  }
+
+  // 2. Try pdf-parse v1 (callable function) if not yet extracted
+  if (!extractedText && typeof pdfModule === 'function') {
+    try {
+      const pdfData = await pdfModule(fileBuffer);
+      if (pdfData && typeof pdfData.text === 'string' && pdfData.text.trim()) {
+        extractedText = pdfData.text;
+      }
+    } catch (fnErr) {
+      console.warn('[DocumentParser] pdfModule function failed:', fnErr.message);
+    }
+  }
+
+  // 3. Try default export if wrapped in ES module
+  if (!extractedText && pdfModule && typeof pdfModule.default === 'function') {
+    try {
+      const pdfData = await pdfModule.default(fileBuffer);
+      if (pdfData && typeof pdfData.text === 'string' && pdfData.text.trim()) {
+        extractedText = pdfData.text;
+      }
+    } catch (defErr) {}
+  }
+
+  // 4. Fallback text stream extraction for simple uncompressed PDFs
+  if (!extractedText) {
+    try {
+      const bufferStr = fileBuffer.toString('binary');
+      const textPieces = [];
+      const tjRegex = /\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*Tj/g;
+      let tjMatch;
+      while ((tjMatch = tjRegex.exec(bufferStr)) !== null) {
+        const raw = tjMatch[1].replace(/\\([()\\])/g, '$1');
+        if (raw.trim()) textPieces.push(raw);
+      }
+      if (textPieces.length >= 3) {
+        extractedText = textPieces.join(' ');
+      }
+    } catch (fallbackErr) {}
+  }
+
+  if (!extractedText || !extractedText.trim()) {
+    throw new Error('Unable to extract text from PDF document. Please ensure the file contains selectable text and is not an image scan or corrupted.');
+  }
+
+  return extractedText;
 }
 
 export async function parseDocument(fileBuffer, originalName, mimeType) {
@@ -30,8 +102,7 @@ export async function parseDocument(fileBuffer, originalName, mimeType) {
   if (extension === 'pdf' || mimeType === 'application/pdf') {
     formatDetected = 'PDF';
     try {
-      const pdfData = await pdfParse(fileBuffer);
-      rawText = pdfData.text || '';
+      rawText = await extractPdfText(fileBuffer);
     } catch (err) {
       throw new Error(`Failed to parse PDF document: ${err.message}. Ensure the file is not password-protected or corrupted.`);
     }

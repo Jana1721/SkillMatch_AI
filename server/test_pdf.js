@@ -41,10 +41,37 @@ startxref
 %%EOF`
 );
 
+import { parseDocument } from './services/documentParser.js';
+
 async function test() {
+  console.log('1. Testing raw PDFParse:');
   const parser = new PDFParse({ data: sampleUnicodePdf });
   const result = await parser.getText();
   console.log('Unicode result:', result.text);
   await parser.destroy();
+
+  console.log('\n2. Testing parseDocument service function:');
+  const parsed = await parseDocument(sampleUnicodePdf, 'resume.pdf', 'application/pdf');
+  console.log('✓ parseDocument format:', parsed.formatDetected);
+  console.log('✓ parseDocument word count:', parsed.wordCount);
+  console.log('✓ parseDocument clean text:', parsed.rawText);
+
+  console.log('\n3. Testing live HTTP /api/resume/upload endpoint:');
+  const blob = new Blob([sampleUnicodePdf], { type: 'application/pdf' });
+  const formData = new FormData();
+  formData.append('resume', blob, 'Candidate_Resume.pdf');
+  formData.append('targetRole', 'Java Developer');
+
+  const res = await fetch('http://localhost:5000/api/resume/upload', {
+    method: 'POST',
+    body: formData
+  });
+
+  const data = await res.json();
+  console.log('✓ HTTP Status:', res.status);
+  console.log('✓ Upload Success:', data.success);
+  if (data.fileInfo) {
+    console.log('✓ File Info:', data.fileInfo);
+  }
 }
-test();
+test().catch(console.error);
