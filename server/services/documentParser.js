@@ -1,8 +1,21 @@
 import { createRequire } from 'module';
 import mammoth from 'mammoth';
 
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor() {
+      this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+    }
+  };
+}
+
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+let pdfParse = null;
+try {
+  pdfParse = require('pdf-parse');
+} catch (e) {
+  console.warn('[DocumentParser] pdf-parse deferred load:', e.message);
+}
 
 export async function parseDocument(fileBuffer, originalName, mimeType) {
   const extension = originalName.split('.').pop()?.toLowerCase();
