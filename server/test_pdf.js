@@ -1,6 +1,4 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const { PDFParse } = require('pdf-parse');
+// Test PDF Document Parser with unpdf and live HTTP endpoint
 
 const sampleUnicodePdf = Buffer.from(
 `%PDF-1.4
@@ -42,13 +40,14 @@ startxref
 );
 
 import { parseDocument } from './services/documentParser.js';
+import { extractText } from 'unpdf';
 
 async function test() {
-  console.log('1. Testing raw PDFParse:');
-  const parser = new PDFParse({ data: sampleUnicodePdf });
-  const result = await parser.getText();
-  console.log('Unicode result:', result.text);
-  await parser.destroy();
+  console.log('1. Testing unpdf:');
+  const uint8 = new Uint8Array(sampleUnicodePdf.buffer, sampleUnicodePdf.byteOffset, sampleUnicodePdf.byteLength);
+  const unpdfRes = await extractText(uint8, { mergePages: true });
+  console.log('✓ unpdf extracted text:', unpdfRes.text);
+  console.log('✓ unpdf total pages:', unpdfRes.totalPages);
 
   console.log('\n2. Testing parseDocument service function:');
   const parsed = await parseDocument(sampleUnicodePdf, 'resume.pdf', 'application/pdf');

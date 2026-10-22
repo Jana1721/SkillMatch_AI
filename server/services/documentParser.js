@@ -1,3 +1,4 @@
+import { extractText as unpdfExtractText } from 'unpdf';
 import { createRequire } from 'module';
 import mammoth from 'mammoth';
 
@@ -14,28 +15,58 @@ let pdfModule = null;
 try {
   pdfModule = require('pdf-parse');
 } catch (e) {
-  console.warn('[DocumentParser] pdf-parse deferred load:', e.message);
+  // Deferred / optional
 }
 
 /**
  * Universal PDF Text Extractor
- * Compatible with pdf-parse v2 (PDFParse class), v1 (callable function), and stream fallbacks
+ * Primary: unpdf (pure-JS, zero-native, 100% serverless/Vercel compatible)
+ * Fallback 1: pdf-parse v1 (callable function)
+ * Fallback 2: pdf-parse v2 (PDFParse class)
+ * Fallback 3: Raw PDF text stream scanner
  */
 async function extractPdfText(fileBuffer) {
   let extractedText = '';
 
-  // 1. Try pdf-parse v2 (class PDFParse)
+  // 1. Primary: unpdf (works reliably in modern Node & Vercel serverless)
+  try {
+    const uint8 = new Uint8Array(fileBuffer.buffer, fileBuffer.byteOffset, fileBuffer.byteLength);
+    const unpdfResult = await unpdfExtractText(uint8, { mergePages: true });
+    if (unpdfResult) {
+      if (typeof unpdfResult.text === 'string' && unpdfResult.text.trim()) {
+        extractedText = unpdfResult.text.trim();
+      } else if (Array.isArray(unpdfResult.text) && unpdfResult.text.length > 0) {
+        extractedText = unpdfResult.text.join('\n\n').trim();
+      }
+    }
+  } catch (unpdfErr) {
+    console.warn('[DocumentParser] unpdf primary extraction failed:', unpdfErr.message);
+  }
+
+  // 2. Secondary fallback: pdf-parse v1 (callable function)
+  if (!extractedText && typeof pdfModule === 'function') {
+    try {
+      const pdfData = await pdfModule(fileBuffer);
+      if (pdfData && typeof pdfData.text === 'string' && pdfData.text.trim()) {
+        extractedText = pdfData.text.trim();
+      }
+    } catch (fnErr) {
+      console.warn('[DocumentParser] pdf-parse v1 fallback failed:', fnErr.message);
+    }
+  }
+
+  // 3. Tertiary fallback: pdf-parse v2 (class PDFParse)
   const PDFParseClass = pdfModule?.PDFParse || (pdfModule && typeof pdfModule === 'function' && pdfModule.prototype?.getText ? pdfModule : null);
-  if (PDFParseClass) {
+  if (!extractedText && PDFParseClass) {
     let parser = null;
     try {
       parser = new PDFParseClass({ data: fileBuffer });
       const result = await parser.getText();
       if (result && typeof result.text === 'string' && result.text.trim()) {
-        extractedText = result.text;
+        extractedText = result.text.trim();
       }
     } catch (classErr) {
-      console.warn('[DocumentParser] PDFParse class failed, trying fallback:', classErr.message);
+      console.warn('[DocumentParser] PDFParse class fallback failed:', classErr.message);
     } finally {
       if (parser && typeof parser.destroy === 'function') {
         try { await parser.destroy(); } catch (e) {}
@@ -43,29 +74,7 @@ async function extractPdfText(fileBuffer) {
     }
   }
 
-  // 2. Try pdf-parse v1 (callable function) if not yet extracted
-  if (!extractedText && typeof pdfModule === 'function') {
-    try {
-      const pdfData = await pdfModule(fileBuffer);
-      if (pdfData && typeof pdfData.text === 'string' && pdfData.text.trim()) {
-        extractedText = pdfData.text;
-      }
-    } catch (fnErr) {
-      console.warn('[DocumentParser] pdfModule function failed:', fnErr.message);
-    }
-  }
-
-  // 3. Try default export if wrapped in ES module
-  if (!extractedText && pdfModule && typeof pdfModule.default === 'function') {
-    try {
-      const pdfData = await pdfModule.default(fileBuffer);
-      if (pdfData && typeof pdfData.text === 'string' && pdfData.text.trim()) {
-        extractedText = pdfData.text;
-      }
-    } catch (defErr) {}
-  }
-
-  // 4. Fallback text stream extraction for simple uncompressed PDFs
+  // 4. Quaternary fallback: direct text stream scanner for uncompressed PDF text
   if (!extractedText) {
     try {
       const bufferStr = fileBuffer.toString('binary');
@@ -83,7 +92,7 @@ async function extractPdfText(fileBuffer) {
   }
 
   if (!extractedText || !extractedText.trim()) {
-    throw new Error('Unable to extract text from PDF document. Please ensure the file contains selectable text and is not an image scan or corrupted.');
+    throw new Error('Unable to extract text from PDF document. Please ensure the file contains selectable text and is not an image scan, or use the "Paste Text" tab to paste your resume content directly.');
   }
 
   return extractedText;
