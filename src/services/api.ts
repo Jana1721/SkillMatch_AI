@@ -3,6 +3,15 @@
  * Connects React UI to the Express SQLite Backend
  */
 
+import {
+  UserProfile,
+  AdminStats,
+  AdminCandidateSummary,
+  CandidateDetailData,
+  GitHubVerificationItem,
+  JDMatchResponse
+} from '../types';
+
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('skillmatch_auth_token');
   const headers: Record<string, string> = {
@@ -33,8 +42,11 @@ export const ApiService = {
   async register(data: {
     name: string;
     email: string;
+    rollNumber: string;
+    phone?: string;
+    department?: string;
     password: string;
-    passwordConfirm?: string;
+    confirmPassword?: string;
     college?: string;
     degree?: string;
     targetRole?: string;
@@ -52,11 +64,11 @@ export const ApiService = {
     return result;
   },
 
-  async login(email: string, pass: string) {
+  async login(identifier: string, pass: string) {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: pass })
+      body: JSON.stringify({ identifier, password: pass })
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Login failed');
@@ -66,7 +78,7 @@ export const ApiService = {
     return result;
   },
 
-  async getMe() {
+  async getMe(): Promise<{ success: boolean; user: UserProfile }> {
     const res = await fetch('/api/auth/me', {
       headers: getAuthHeaders()
     });
@@ -74,25 +86,58 @@ export const ApiService = {
     return res.json();
   },
 
-  async verifyEmail(email?: string, token?: string) {
+  async updateProfile(data: Partial<UserProfile>) {
+    const res = await fetch('/api/user/profile', {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to update profile');
+    return result;
+  },
+
+  async verifyEmail(code: string, identifier?: string, email?: string) {
     const res = await fetch('/api/auth/verify-email', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ email, token })
+      body: JSON.stringify({ code, identifier, email })
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Email verification failed');
     return result;
   },
 
-  async resendVerification(email?: string) {
-    const res = await fetch('/api/auth/resend-verification', {
+  async resendVerification(identifier?: string, email?: string) {
+    const res = await fetch('/api/auth/resend-code', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ identifier, email })
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Failed to resend verification email');
+    return result;
+  },
+
+  async forgotPassword(identifier: string) {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to request password reset');
+    return result;
+  },
+
+  async resetPassword(email: string, token: string, newPassword: string) {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, token, newPassword })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Password reset failed');
     return result;
   },
 
@@ -105,9 +150,112 @@ export const ApiService = {
   },
 
   // --------------------------------------------------------------------------
+  // ADMIN DASHBOARD & CANDIDATE MANAGEMENT
+  // --------------------------------------------------------------------------
+  async getAdminStats(): Promise<{ success: boolean; stats: AdminStats }> {
+    const res = await fetch('/api/admin/stats', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Forbidden' }));
+      throw new Error(err.error || 'Admin access required');
+    }
+    return res.json();
+  },
+
+  async getAdminCandidates(params: {
+    search?: string;
+    department?: string;
+    verificationStatus?: string;
+    interviewStatus?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  } = {}): Promise<{
+    success: boolean;
+    candidates: AdminCandidateSummary[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> {
+    const query = new URLSearchParams();
+    if (params.search) query.set('search', params.search);
+    if (params.department) query.set('department', params.department);
+    if (params.verificationStatus) query.set('verificationStatus', params.verificationStatus);
+    if (params.interviewStatus) query.set('interviewStatus', params.interviewStatus);
+    if (params.page) query.set('page', params.page.toString());
+    if (params.limit) query.set('limit', params.limit.toString());
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+
+    const res = await fetch(`/api/admin/candidates?${query.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to fetch candidate roster' }));
+      throw new Error(err.error || 'Failed to fetch candidate roster');
+    }
+    return res.json();
+  },
+
+  async getAdminCandidateDetail(id: string): Promise<CandidateDetailData & { success: boolean }> {
+    const res = await fetch(`/api/admin/candidates/${id}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Candidate not found' }));
+      throw new Error(err.error || 'Failed to fetch candidate details');
+    }
+    return res.json();
+  },
+
+  async adminVerifyCandidateEmail(id: string) {
+    const res = await fetch(`/api/admin/candidates/${id}/verify-email`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to verify candidate email');
+    return result;
+  },
+
+  async getAdminAuditLogs() {
+    const res = await fetch('/api/admin/audit-logs', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch audit logs');
+    return res.json();
+  },
+
+  getAdminExportUrl(format: 'csv' | 'json' = 'csv') {
+    return `/api/admin/export?format=${format}`;
+  },
+
+  // --------------------------------------------------------------------------
+  // GITHUB PROJECT LINK VERIFICATION
+  // --------------------------------------------------------------------------
+  async verifyGitHubRepo(url: string): Promise<{ success: boolean; verification: GitHubVerificationItem }> {
+    const res = await fetch('/api/github/verify', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ url })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'GitHub verification failed');
+    return result;
+  },
+
+  async getGitHubVerifications(): Promise<{ success: boolean; verifications: GitHubVerificationItem[] }> {
+    const res = await fetch('/api/github/verifications', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load GitHub verifications');
+    return res.json();
+  },
+
+  // --------------------------------------------------------------------------
   // RESUME & DOCUMENT PARSING
   // --------------------------------------------------------------------------
-  async uploadResume(file: File, targetRole: string = 'Java Developer'): Promise<AnalysisResponse> {
+  async uploadResume(file: File, targetRole: string = 'Software Engineer'): Promise<AnalysisResponse> {
     const formData = new FormData();
     formData.append('resume', file);
     formData.append('targetRole', targetRole);
@@ -130,7 +278,7 @@ export const ApiService = {
     return res.json();
   },
 
-  async analyzeText(text: string, targetRole: string = 'Java Developer', sourceName: string = 'Pasted_Resume.txt'): Promise<AnalysisResponse> {
+  async analyzeText(text: string, targetRole: string = 'Software Engineer', sourceName: string = 'Pasted_Resume.txt'): Promise<AnalysisResponse> {
     const res = await fetch('/api/resume/analyze-text', {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -180,11 +328,19 @@ export const ApiService = {
     return res.json();
   },
 
-  async matchJD(jdText: string, jobTitle?: string, companyName?: string) {
+  // --------------------------------------------------------------------------
+  // JOB DESCRIPTION MATCHING (Separate Resume Quality Score vs JD Fit Score)
+  // --------------------------------------------------------------------------
+  async matchJD(data: {
+    jdText: string;
+    jobTitle?: string;
+    companyName?: string;
+    resumeText?: string;
+  }): Promise<JDMatchResponse> {
     const res = await fetch('/api/jd/match', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ jdText, jobTitle, companyName })
+      body: JSON.stringify(data)
     });
 
     if (!res.ok) {
@@ -192,6 +348,14 @@ export const ApiService = {
       throw new Error(err.error || 'JD Matching failed');
     }
 
+    return res.json();
+  },
+
+  async getPastJDMatches() {
+    const res = await fetch('/api/jd/matches', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch past JD matches');
     return res.json();
   },
 
@@ -293,6 +457,44 @@ export const ApiService = {
   },
 
   // --------------------------------------------------------------------------
+  // PERSONALIZED JOB SUGGESTIONS & SAVED JOBS
+  // --------------------------------------------------------------------------
+  async getJobRecommendations(role?: string) {
+    const res = await fetch(`/api/jobs/recommendations${role ? `?role=${encodeURIComponent(role)}` : ''}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load job recommendations');
+    return res.json();
+  },
+
+  async getSavedJobs() {
+    const res = await fetch('/api/jobs/saved', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load saved jobs');
+    return res.json();
+  },
+
+  async saveJob(job: any) {
+    const res = await fetch('/api/jobs/save', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ job })
+    });
+    if (!res.ok) throw new Error('Failed to save job');
+    return res.json();
+  },
+
+  async removeSavedJob(jobId: string) {
+    const res = await fetch(`/api/jobs/save/${jobId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to remove saved job');
+    return res.json();
+  },
+
+  // --------------------------------------------------------------------------
   // LEARNING ROADMAP & PROGRESS
   // --------------------------------------------------------------------------
   async getRoadmap(role?: string) {
@@ -322,35 +524,8 @@ export const ApiService = {
   },
 
   // --------------------------------------------------------------------------
-  // SAVED JOBS & CATALOGS
+  // CATALOGS
   // --------------------------------------------------------------------------
-  async getSavedJobs() {
-    const res = await fetch('/api/jobs/saved', {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load saved jobs');
-    return res.json();
-  },
-
-  async saveJob(job: any) {
-    const res = await fetch('/api/jobs/save', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ job })
-    });
-    if (!res.ok) throw new Error('Failed to save job');
-    return res.json();
-  },
-
-  async removeSavedJob(jobId: string) {
-    const res = await fetch(`/api/jobs/save/${jobId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to remove saved job');
-    return res.json();
-  },
-
   async getCompanies() {
     const res = await fetch('/api/companies');
     if (!res.ok) throw new Error('Failed to load company suggestions');

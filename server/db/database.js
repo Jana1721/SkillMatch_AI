@@ -20,17 +20,19 @@ const JSON_DB_PATH = path.join(DB_DIR, 'careerlens.json');
 let sqliteDb = null;
 let useJsEngine = false;
 
-// Initialize pure-JS store
+// Initialize pure-JS store with all tables
 let store = {
   users: [],
   user_emails: [],
   resumes: [],
   project_verifications: [],
+  github_verifications: [],
   jd_matches: [],
   interview_sessions: [],
   interview_evaluations: [],
   user_saved_jobs: [],
-  user_learning_progress: []
+  user_learning_progress: [],
+  audit_logs: []
 };
 
 // Load existing JSON if available
@@ -179,10 +181,36 @@ function executeJsRun(sql, params = []) {
 function executeJsSelect(sql, params = []) {
   const trimmed = sql.trim();
 
+  // Aggregate: COUNT(*)
+  if (/SELECT\s+COUNT\(\*\)\s+(?:as\s+\w+\s+)?FROM\s+([a-zA-Z0-9_]+)/i.test(trimmed)) {
+    const match = trimmed.match(/FROM\s+([a-zA-Z0-9_]+)/i);
+    const table = match ? match[1] : '';
+    let rows = store[table] ? [...store[table]] : [];
+    const whereMatch = trimmed.match(/WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+LIMIT|$)/is);
+    if (whereMatch) {
+      rows = rows.filter(r => matchesWhere(r, whereMatch[1], params));
+    }
+    return [{ count: rows.length, 'COUNT(*)': rows.length }];
+  }
+
+  // Aggregate: AVG(score)
+  if (/SELECT\s+AVG\((?:overall_score|ats_score)\)\s+(?:as\s+\w+\s+)?FROM\s+([a-zA-Z0-9_]+)/i.test(trimmed)) {
+    const match = trimmed.match(/FROM\s+([a-zA-Z0-9_]+)/i);
+    const table = match ? match[1] : '';
+    let rows = store[table] ? [...store[table]] : [];
+    const whereMatch = trimmed.match(/WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+LIMIT|$)/is);
+    if (whereMatch) {
+      rows = rows.filter(r => matchesWhere(r, whereMatch[1], params));
+    }
+    const scores = rows.map(r => r.overall_score || r.ats_score || 0).filter(s => s > 0);
+    const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    return [{ avg, 'AVG(overall_score)': avg }];
+  }
+
   // Handle JOIN in interview evaluations
   if (/FROM\s+interview_evaluations\s+e\s+LEFT\s+JOIN\s+interview_sessions\s+s/i.test(trimmed)) {
     const userId = params[0];
-    const evals = (store.interview_evaluations || []).filter(e => e.user_id === userId);
+    const evals = (store.interview_evaluations || []).filter(e => !userId || e.user_id === userId);
     return evals.map(e => {
       const session = (store.interview_sessions || []).find(s => s.id === e.session_id) || {};
       return {
@@ -191,7 +219,7 @@ function executeJsSelect(sql, params = []) {
         interview_type: session.interview_type,
         difficulty: session.difficulty
       };
-    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
+    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 50);
   }
 
   const tableMatch = trimmed.match(/FROM\s+([a-zA-Z0-9_]+)/i);
@@ -226,6 +254,37 @@ function executeJsSelect(sql, params = []) {
 
 function matchesWhere(row, whereClause, params) {
   const normalized = whereClause.replace(/\s+/g, ' ').trim();
+
+  // LOWER(email) = ? OR LOWER(credential_id) = ?
+  if (/LOWER\(email\)\s*=\s*\?\s*OR\s*LOWER\(credential_id\)\s*=\s*\?/i.test(normalized)) {
+    const val = (params[0] || '').toLowerCase();
+    return (row.email || '').toLowerCase() === val || (row.credential_id || '').toLowerCase() === val;
+  }
+
+  // LOWER(roll_number) = ?
+  if (/LOWER\(roll_number\)\s*=\s*\?/i.test(normalized)) {
+    return (row.roll_number || '').toLowerCase() === (params[0] || '').toLowerCase();
+  }
+
+  // roll_number = ?
+  if (/\broll_number\s*=\s*\?/i.test(normalized)) {
+    return (row.roll_number || '').toLowerCase() === (params[0] || '').toLowerCase();
+  }
+
+  // LOWER(credential_id) = ?
+  if (/LOWER\(credential_id\)\s*=\s*\?/i.test(normalized)) {
+    return (row.credential_id || '').toLowerCase() === (params[0] || '').toLowerCase();
+  }
+
+  // credential_id = ?
+  if (/\bcredential_id\s*=\s*\?/i.test(normalized)) {
+    return (row.credential_id || '').toLowerCase() === (params[0] || '').toLowerCase();
+  }
+
+  // role = ?
+  if (/\brole\s*=\s*\?/i.test(normalized)) {
+    return (row.role || 'student') === params[0];
+  }
 
   // LOWER(email) = ?
   if (/LOWER\(email\)\s*=\s*\?/i.test(normalized)) {
@@ -321,24 +380,53 @@ export function generateCredentialId() {
 
 // Initialize tables & seed data
 export async function initDatabase() {
-  // 1. Users Table
+  // 1. Users Table with Roll Number, Phone, Department, Role, OTP metadata
   await dbRun(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       credential_id TEXT UNIQUE NOT NULL,
+      roll_number TEXT UNIQUE,
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
+      phone TEXT,
+      department TEXT,
       password_hash TEXT NOT NULL,
+      role TEXT DEFAULT 'student',
       college TEXT DEFAULT '',
       degree TEXT DEFAULT '',
       target_role TEXT DEFAULT 'Java Developer',
       email_verified INTEGER DEFAULT 0,
       verification_token TEXT,
+      token_expires_at DATETIME,
+      verification_attempts INTEGER DEFAULT 0,
+      last_resend_at DATETIME,
       reset_token TEXT,
+      reset_expires_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Safe migrations for existing SQLite tables
+  const userColumnsToAdd = [
+    'roll_number TEXT',
+    'phone TEXT',
+    'department TEXT',
+    'role TEXT DEFAULT "student"',
+    'token_expires_at DATETIME',
+    'verification_attempts INTEGER DEFAULT 0',
+    'last_resend_at DATETIME',
+    'reset_token TEXT',
+    'reset_expires_at DATETIME'
+  ];
+
+  for (const colDef of userColumnsToAdd) {
+    try {
+      await dbRun(`ALTER TABLE users ADD COLUMN ${colDef}`);
+    } catch (e) {
+      // Column already exists
+    }
+  }
 
   // 2. Transactional Emails Outbox
   await dbRun(`
@@ -367,41 +455,68 @@ export async function initDatabase() {
       parsed_json TEXT,
       target_role TEXT,
       analysis_json TEXT,
+      scorecard_json TEXT,
+      overall_score INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // 4. Project Verifications
+  try {
+    await dbRun(`ALTER TABLE resumes ADD COLUMN overall_score INTEGER`);
+    await dbRun(`ALTER TABLE resumes ADD COLUMN scorecard_json TEXT`);
+  } catch (e) {}
+
+  // 4. GitHub Project Link Verifications
   await dbRun(`
-    CREATE TABLE IF NOT EXISTS project_verifications (
+    CREATE TABLE IF NOT EXISTS github_verifications (
       id TEXT PRIMARY KEY,
-      resume_id TEXT,
-      project_name TEXT,
-      github_url TEXT,
-      documentation TEXT,
-      architecture_notes TEXT,
-      has_db_connection INTEGER,
-      has_api_integration INTEGER,
-      has_authentication INTEGER,
-      has_testing INTEGER,
-      has_deployment INTEGER,
-      classification TEXT,
-      evidence_notes TEXT,
+      user_id TEXT NOT NULL,
+      repo_url TEXT NOT NULL,
+      repo_name TEXT,
+      repo_owner TEXT,
+      owner TEXT,
+      status TEXT NOT NULL,
+      description TEXT,
+      primary_language TEXT,
+      topics_json TEXT,
+      stars INTEGER DEFAULT 0,
+      forks INTEGER DEFAULT 0,
+      open_issues INTEGER DEFAULT 0,
+      has_readme INTEGER DEFAULT 0,
+      last_updated DATETIME,
+      relevance_score INTEGER,
+      relevance_notes TEXT,
+      matched_skills_json TEXT,
+      repo_data_json TEXT,
+      analysis_json TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  try {
+    await dbRun(`ALTER TABLE github_verifications ADD COLUMN repo_owner TEXT`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE github_verifications ADD COLUMN repo_data_json TEXT`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE github_verifications ADD COLUMN analysis_json TEXT`);
+  } catch (e) {}
 
   // 5. Job Description Matches
   await dbRun(`
     CREATE TABLE IF NOT EXISTS jd_matches (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
       resume_id TEXT,
-      job_title TEXT,
-      company_name TEXT,
+      target_role TEXT,
+      jd_title TEXT,
       jd_text TEXT,
       match_score INTEGER,
       matched_skills_json TEXT,
       missing_skills_json TEXT,
+      partial_matches_json TEXT,
+      relevant_projects_json TEXT,
       recommendations_json TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -430,9 +545,7 @@ export async function initDatabase() {
 
   try {
     await dbRun(`ALTER TABLE interview_sessions ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
-  } catch (e) {
-    // Column already exists
-  }
+  } catch (e) {}
 
   // 7. Interview Evaluations & Performance Reports
   await dbRun(`
@@ -475,27 +588,88 @@ export async function initDatabase() {
     )
   `);
 
-  // Seed default demo user if not present
+  // 10. Administrator Audit Logs
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      admin_id TEXT NOT NULL,
+      admin_name TEXT,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      target_user_id TEXT,
+      target_user_name TEXT,
+      details TEXT,
+      details_json TEXT,
+      ip_address TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  try {
+    await dbRun(`ALTER TABLE audit_logs ADD COLUMN target_type TEXT`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE audit_logs ADD COLUMN target_id TEXT`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE audit_logs ADD COLUMN details_json TEXT`);
+  } catch (e) {}
+
+  // Seed default demo candidate if not present
   const existingDemo = await dbGet(`SELECT * FROM users WHERE email = ?`, ['demo@skillmatch.ai']);
   if (!existingDemo) {
     const salt = await bcrypt.genSalt(10);
     const demoHash = await bcrypt.hash('password123', salt);
     await dbRun(
-      `INSERT INTO users (id, credential_id, name, email, password_hash, college, degree, target_role, email_verified)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, credential_id, roll_number, name, email, phone, department, password_hash, role, college, degree, target_role, email_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         'user-demo',
         'SKM-2026-DEMO01',
+        '2024CS01',
         'Demo Candidate',
         'demo@skillmatch.ai',
+        '+91 9876543210',
+        'Computer Science & Engineering',
         demoHash,
+        'student',
         'National Institute of Technology',
         'B.Tech Computer Science & Engineering',
         'Java Developer',
         1
       ]
     );
-    console.log('[SkillMatch DB] Seeded demo user: demo@skillmatch.ai / password123 [ID: SKM-2026-DEMO01]');
+    console.log('[SkillMatch DB] Seeded demo student: demo@skillmatch.ai / password123 [Roll: 2024CS01 | ID: SKM-2026-DEMO01]');
+  } else if (!existingDemo.roll_number || !existingDemo.department) {
+    await dbRun(`UPDATE users SET roll_number = '2024CS01', department = 'Computer Science & Engineering', phone = '+91 9876543210', role = 'student' WHERE id = ?`, [existingDemo.id]);
+  }
+
+  // Seed default administrator if not present
+  const existingAdmin = await dbGet(`SELECT * FROM users WHERE email = ?`, ['admin@skillmatch.ai']);
+  if (!existingAdmin) {
+    const salt = await bcrypt.genSalt(10);
+    const adminHash = await bcrypt.hash('Admin@2026!', salt);
+    await dbRun(
+      `INSERT INTO users (id, credential_id, roll_number, name, email, phone, department, password_hash, role, college, degree, target_role, email_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'user-admin',
+        'SKM-ADMIN-01',
+        'ADMIN-001',
+        'Platform Administrator',
+        'admin@skillmatch.ai',
+        '+91 9999999999',
+        'Administration & Careers',
+        adminHash,
+        'admin',
+        'SkillMatch Central Administration',
+        'Executive Leadership',
+        'Administrator',
+        1
+      ]
+    );
+    console.log('[SkillMatch DB] Seeded administrator: admin@skillmatch.ai / Admin@2026! [ID: SKM-ADMIN-01]');
   }
 
   console.log('[SkillMatch DB] Initialized successfully. Engine:', useJsEngine ? 'Pure-JS Engine' : 'SQLite3 Binary');

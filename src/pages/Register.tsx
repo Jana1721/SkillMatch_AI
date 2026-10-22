@@ -1,12 +1,28 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Sparkles, Check, User, Mail, Lock, School, GraduationCap, Briefcase, Plus, X, ArrowRight, ShieldCheck, MailCheck, Copy } from 'lucide-react';
+import {
+  Sparkles,
+  Check,
+  User,
+  Mail,
+  Lock,
+  School,
+  GraduationCap,
+  Briefcase,
+  Phone,
+  Hash,
+  Building2,
+  ArrowRight,
+  ShieldCheck,
+  MailCheck,
+  Copy,
+  ExternalLink
+} from 'lucide-react';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { ApiService } from '../services/api';
-import { UserSkill } from '../types';
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
@@ -14,78 +30,64 @@ export const Register: React.FC = () => {
   const { showToast } = useToast();
 
   const [fullName, setFullName] = useState('');
+  const [rollNumber, setRollNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [department, setDepartment] = useState('Computer Science & Engineering');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [targetRole, setTargetRole] = useState('Java Developer');
+  const [targetRole, setTargetRole] = useState('Software Engineer');
   const [college, setCollege] = useState('');
-  const [degree, setDegree] = useState('B.Tech');
-  const [graduationYear, setGraduationYear] = useState('2027');
-
-  // Selected Skills
-  const [selectedSkills, setSelectedSkills] = useState<UserSkill[]>([
-    { name: 'Python', proficiency: 'Advanced', category: 'Programming' },
-    { name: 'SQL', proficiency: 'Intermediate', category: 'Database' }
-  ]);
-  const [customSkillInput, setCustomSkillInput] = useState('');
-
-  // Selected Interests
-  const availableInterests = ['Data Analytics', 'AI/ML', 'Cloud', 'Cybersecurity', 'Web Development', 'ServiceNow', 'DevOps', 'Business Analysis'];
-  const [selectedInterests, setSelectedInterests] = useState<string[]>(['Data Analytics', 'Cloud']);
+  const [degree, setDegree] = useState('B.Tech / B.E.');
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [successData, setSuccessData] = useState<{ credentialId: string; email: string; emailPreview?: string } | null>(null);
-  const [verificationInput, setVerificationInput] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [successData, setSuccessData] = useState<{
+    loginId: string;
+    credentialId: string;
+    email: string;
+    rollNumber: string;
+    emailPreview?: string;
+  } | null>(null);
 
-  const availableRoles = [
-    'Java Developer',
-    'Software Developer / SDE',
-    'ServiceNow Developer',
-    'Full Stack Developer',
-    'Cloud & DevOps Engineer',
-    'Data Analyst'
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState('');
+
+  const departmentsList = [
+    'Computer Science & Engineering',
+    'Information Technology',
+    'Electronics & Communication Engineering',
+    'Electrical & Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Artificial Intelligence & Data Science',
+    'MCA / BCA',
+    'Other Engineering'
   ];
 
-  const availableSkillPills = ['Java', 'Python', 'SQL', 'React', 'Node.js', 'Spring Boot', 'AWS', 'Docker', 'Git', 'Data Structures'];
-
-  const toggleInterest = (interest: string) => {
-    if (selectedInterests.includes(interest)) {
-      setSelectedInterests(selectedInterests.filter(i => i !== interest));
-    } else {
-      setSelectedInterests([...selectedInterests, interest]);
-    }
-  };
-
-  const addSkillPill = (skillName: string) => {
-    if (!selectedSkills.some(s => s.name.toLowerCase() === skillName.toLowerCase())) {
-      setSelectedSkills([...selectedSkills, { name: skillName, proficiency: 'Intermediate' }]);
-    }
-  };
-
-  const removeSkillPill = (skillName: string) => {
-    setSelectedSkills(selectedSkills.filter(s => s.name !== skillName));
-  };
-
-  const handleAddCustomSkill = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (customSkillInput.trim() && !selectedSkills.some(s => s.name.toLowerCase() === customSkillInput.trim().toLowerCase())) {
-      setSelectedSkills([...selectedSkills, { name: customSkillInput.trim(), proficiency: 'Intermediate' }]);
-      setCustomSkillInput('');
-    }
-  };
+  const availableRoles = [
+    'Software Engineer',
+    'Full Stack Java Developer',
+    'Python & AI Developer',
+    'Cloud & DevOps Engineer',
+    'Data Analyst',
+    'ServiceNow Specialist',
+    'Cybersecurity Analyst'
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
     if (!fullName.trim()) newErrors.fullName = 'Full name is required.';
-    if (!email.trim()) newErrors.email = 'Personal email address is required.';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) newErrors.email = 'Enter a valid email address.';
+    if (!rollNumber.trim()) newErrors.rollNumber = 'College roll number is required.';
+    if (!email.trim()) newErrors.email = 'Email address is required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) newErrors.email = 'Enter a valid student email address.';
+    if (!phone.trim()) newErrors.phone = 'Phone number is required.';
+    if (!department) newErrors.department = 'Department is required.';
     if (!password || password.length < 6) newErrors.password = 'Password must be at least 6 characters.';
     if (password !== passwordConfirm) newErrors.passwordConfirm = 'Passwords do not match.';
-    if (!college.trim()) newErrors.college = 'College/University is required.';
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -98,20 +100,26 @@ export const Register: React.FC = () => {
     try {
       const res = await register({
         name: fullName.trim(),
+        rollNumber: rollNumber.trim(),
         email: email.trim().toLowerCase(),
-        password,
-        passwordConfirm,
-        college: college.trim(),
+        phone: phone.trim(),
+        department,
+        college: college.trim() || 'University Engineering College',
         degree,
-        targetRole
+        targetRole,
+        password,
+        confirmPassword: passwordConfirm
       });
 
-      showToast('Registration successful! Verification email dispatched.', 'success');
+      const generatedId = res.loginId || res.credentialId;
       setSuccessData({
-        credentialId: res.user?.credentialId || 'SKM-2026-ACTIVE',
+        loginId: generatedId,
+        credentialId: generatedId,
         email: email.trim().toLowerCase(),
+        rollNumber: rollNumber.trim(),
         emailPreview: res.emailPreview
       });
+      showToast(`Account created! Your unique Login ID is ${generatedId}`, 'success');
     } catch (err: any) {
       setErrors({ form: err.message || 'Registration failed. Please try again.' });
       showToast(err.message || 'Registration failed', 'error');
@@ -120,129 +128,151 @@ export const Register: React.FC = () => {
     }
   };
 
-  const handleQuickVerify = async () => {
-    if (!verificationInput.trim()) {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationCode || verificationCode.trim().length !== 6) {
       showToast('Please enter the 6-digit code received in your email', 'error');
       return;
     }
+
     setIsVerifying(true);
     try {
-      const res = await ApiService.verifyEmail(successData?.email, verificationInput.trim());
-      showToast(res.message || 'Email verified successfully!', 'success');
-      navigate('/dashboard');
+      const res = await ApiService.verifyEmail(
+        verificationCode.trim(),
+        successData?.loginId,
+        successData?.email
+      );
+      if (res.success) {
+        showToast('Email verified successfully! Welcome to SkillMatch AI.', 'success');
+        setVerifyMessage('Email verified! Redirecting to Dashboard...');
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1200);
+      }
     } catch (err: any) {
-      showToast(err.message || 'Verification failed. Check the code.', 'error');
+      showToast(err.message || 'Verification failed', 'error');
     } finally {
       setIsVerifying(false);
     }
   };
 
+  const copyLoginId = () => {
+    if (successData?.loginId) {
+      navigator.clipboard.writeText(successData.loginId);
+      showToast('Login ID copied to clipboard!', 'success');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 py-10 px-4 flex items-center justify-center selection:bg-indigo-500 selection:text-white">
-      <div className="w-full max-w-2xl space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 py-12 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+      <div className="max-w-2xl w-full">
         {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <Link to="/" className="inline-flex items-center gap-2 group">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-200 group-hover:scale-105 transition-transform">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <span className="font-extrabold text-xl text-slate-900 tracking-tight">
-              SkillMatch<span className="text-indigo-600 font-black">AI</span>
-            </span>
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Candidate Registration</h1>
-          <p className="text-xs sm:text-sm text-slate-500">
-            Create your individual profile, generate your unique credential ID, and activate voice interview preparation.
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-3">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            Verified Career Readiness Platform
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+            Student Registration
+          </h1>
+          <p className="text-slate-400 text-sm mt-2">
+            Create your individual SkillMatch AI student account & receive your unique Login ID
           </p>
         </div>
 
-        {/* Success Modal / Banner */}
+        {/* Success Card with Login ID */}
         {successData ? (
-          <Card className="p-8 border-2 border-emerald-500 bg-white shadow-xl rounded-2xl space-y-6 animate-in fade-in">
-            <div className="text-center space-y-3">
-              <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center">
-                <ShieldCheck className="w-8 h-8" />
+          <Card className="p-8 bg-white shadow-2xl rounded-2xl border-emerald-500/30">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-600">
+                <MailCheck className="w-8 h-8" />
               </div>
-              <h2 className="text-2xl font-black text-slate-900">Account Created Successfully!</h2>
-              <p className="text-sm text-slate-600">
-                A confirmation message has been dispatched to your personal email address:{' '}
-                <strong className="text-slate-900">{successData.email}</strong>
-              </p>
-            </div>
-
-            {/* Credential ID Card */}
-            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 text-center space-y-1">
-              <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Your Permanent Credential ID</span>
-              <div className="flex items-center justify-center gap-2">
-                <span className="font-mono text-2xl font-black text-emerald-700 tracking-widest">{successData.credentialId}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(successData.credentialId);
-                    showToast('Credential ID copied to clipboard!', 'info');
-                  }}
-                  className="p-1.5 hover:bg-emerald-200 rounded-lg text-emerald-700 transition-colors"
-                  title="Copy Credential ID"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="text-xs text-emerald-600">This permanent ID is required for all official interview scorecards and reports.</p>
-            </div>
-
-            {/* Email Verification Box */}
-            <div className="border border-slate-200 bg-slate-50 rounded-xl p-5 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                <MailCheck className="w-4 h-4 text-indigo-600" />
-                <span>Verify Your Personal Email Address</span>
-              </div>
-              <p className="text-xs text-slate-500">
-                Enter the 6-digit verification code sent to your inbox to instantly activate all voice interview and resume features.
+              <h2 className="text-2xl font-bold text-slate-900">Registration Successful!</h2>
+              <p className="text-slate-600 text-sm max-w-md mx-auto">
+                Your student account has been created. A 6-digit OTP verification code has been dispatched to{' '}
+                <strong className="text-slate-900">{successData.email}</strong>.
               </p>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={verificationInput}
-                  onChange={(e) => setVerificationInput(e.target.value)}
-                  placeholder="Enter 6-digit code"
-                  className="px-4 py-2.5 font-mono text-center tracking-widest text-lg font-bold border border-slate-300 rounded-xl bg-white w-48 focus:border-indigo-600 outline-none"
-                />
-                <Button onClick={handleQuickVerify} disabled={isVerifying} className="flex-1 py-2.5">
-                  {isVerifying ? 'Verifying...' : 'Verify Now'}
-                </Button>
+              {/* Login ID Box */}
+              <div className="bg-emerald-50 border-2 border-dashed border-emerald-300 rounded-xl p-5 my-4">
+                <span className="text-xs uppercase font-bold tracking-wider text-emerald-800">
+                  Your Permanent SkillMatch AI Login ID
+                </span>
+                <div className="flex items-center justify-center gap-3 mt-2">
+                  <span className="font-mono text-2xl font-black text-emerald-700 tracking-wider">
+                    {successData.loginId}
+                  </span>
+                  <button
+                    onClick={copyLoginId}
+                    className="p-2 rounded-lg bg-emerald-200/60 hover:bg-emerald-200 text-emerald-800 transition"
+                    title="Copy Login ID"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-emerald-700 mt-2">
+                  Keep this Login ID safe. You can log in using either this Login ID or your email address.
+                </p>
               </div>
 
+              {/* In-app preview for dev */}
               {successData.emailPreview && (
-                <div className="pt-2 text-center">
+                <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200 flex items-center justify-center gap-1.5">
+                  <span>Development Mailer Preview:</span>
                   <a
                     href={successData.emailPreview}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-indigo-600 hover:underline font-semibold"
+                    className="text-indigo-600 font-semibold hover:underline flex items-center gap-1"
                   >
-                    ↗ View Ethereal Email Dispatch Preview
+                    View Dispatched Email <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               )}
-            </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                className="text-xs text-slate-500 hover:text-slate-800 underline font-medium"
-              >
-                Skip for now & go to Dashboard →
-              </button>
-              <Button onClick={() => navigate('/dashboard')} variant="outline" className="text-xs">
-                Enter Platform
-              </Button>
+              {/* OTP Input Form */}
+              <form onSubmit={handleVerifyOtp} className="pt-4 border-t border-slate-100 space-y-4">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Enter 6-Digit Email Verification Code
+                </label>
+                <div className="max-w-xs mx-auto">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className="w-full text-center text-2xl tracking-[0.5em] font-mono font-bold py-3 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 outline-none"
+                  />
+                </div>
+
+                {verifyMessage && (
+                  <p className="text-xs font-bold text-emerald-600">{verifyMessage}</p>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+                  <Button
+                    type="submit"
+                    disabled={isVerifying || verificationCode.length !== 6}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6"
+                  >
+                    {isVerifying ? 'Verifying...' : 'Verify Email & Activate'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate('/verify-email')}
+                    className="py-3 px-6"
+                  >
+                    Go to Verification Screen
+                  </Button>
+                </div>
+              </form>
             </div>
           </Card>
         ) : (
-          <Card className="p-6 sm:p-8 bg-white shadow-xl shadow-slate-200/50 border-slate-200/80 rounded-2xl">
+          /* Registration Form */
+          <Card className="p-6 sm:p-8 bg-white shadow-2xl rounded-2xl border-slate-100">
             <form onSubmit={handleSubmit} className="space-y-6">
               {errors.form && (
                 <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold">
@@ -250,45 +280,118 @@ export const Register: React.FC = () => {
                 </div>
               )}
 
-              {/* Basic Candidate Info */}
+              {/* Section 1: Candidate Identity */}
               <div className="space-y-4">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">1. Personal & Contact Credentials</h2>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Full Name</label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="e.g. John Doe"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
-                    />
-                  </div>
-                  {errors.fullName && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.fullName}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Personal Email Address <span className="text-indigo-600">(Verification link & reports sent here)</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="e.g. candidate@gmail.com"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
-                    />
-                  </div>
-                  {errors.email && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.email}</p>}
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">1</span>
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Candidate & College Identity</h2>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Password</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Full Name <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="e.g. Arun Kumar"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
+                      />
+                    </div>
+                    {errors.fullName && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.fullName}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      College Roll Number <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={rollNumber}
+                        onChange={(e) => setRollNumber(e.target.value)}
+                        placeholder="e.g. 2024CS012"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
+                      />
+                    </div>
+                    {errors.rollNumber && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.rollNumber}</p>}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Student / College Email <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="e.g. student@college.edu"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
+                      />
+                    </div>
+                    {errors.email && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.email}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Phone Number <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="e.g. +91 9876543210"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
+                      />
+                    </div>
+                    {errors.phone && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.phone}</p>}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Department / Specialization <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <select
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 outline-none transition"
+                    >
+                      {departmentsList.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Account Security */}
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">2</span>
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Account Security Password</h2>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Password <span className="text-rose-500">*</span>
+                    </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
@@ -296,14 +399,16 @@ export const Register: React.FC = () => {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
                     {errors.password && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.password}</p>}
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Confirm Password</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Confirm Password <span className="text-rose-500">*</span>
+                    </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
@@ -311,7 +416,7 @@ export const Register: React.FC = () => {
                         value={passwordConfirm}
                         onChange={(e) => setPasswordConfirm(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
                     {errors.passwordConfirm && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.passwordConfirm}</p>}
@@ -319,19 +424,22 @@ export const Register: React.FC = () => {
                 </div>
               </div>
 
-              {/* Academic & Target Career */}
-              <div className="space-y-4 pt-2 border-t border-slate-100">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">2. Academic Background & Target Role</h2>
+              {/* Section 3: Target Role & College */}
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">3</span>
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Target Career & College Details</h2>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Target Engineering Role</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Target Role</label>
                     <div className="relative">
                       <Briefcase className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <select
                         value={targetRole}
                         onChange={(e) => setTargetRole(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 outline-none"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 outline-none transition"
                       >
                         {availableRoles.map((r) => (
                           <option key={r} value={r}>
@@ -343,88 +451,47 @@ export const Register: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Degree</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">College / Institution</label>
                     <div className="relative">
-                      <GraduationCap className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <select
-                        value={degree}
-                        onChange={(e) => setDegree(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 outline-none"
-                      >
-                        <option value="B.Tech Computer Science">B.Tech Computer Science</option>
-                        <option value="B.Tech Information Technology">B.Tech Information Technology</option>
-                        <option value="BCA / MCA">BCA / MCA</option>
-                        <option value="B.Sc Computer Science">B.Sc Computer Science</option>
-                        <option value="Other Engineering">Other Engineering</option>
-                      </select>
+                      <School className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={college}
+                        onChange={(e) => setCollege(e.target.value)}
+                        placeholder="e.g. National Institute of Technology"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
+                      />
                     </div>
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">College / University</label>
-                  <div className="relative">
-                    <School className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={college}
-                      onChange={(e) => setCollege(e.target.value)}
-                      placeholder="e.g. National Institute of Technology"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
-                    />
-                  </div>
-                  {errors.college && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.college}</p>}
-                </div>
-              </div>
-
-              {/* Skills Tags */}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">3. Select Initial Technical Skills</h2>
-
-                <div className="flex flex-wrap gap-2">
-                  {availableSkillPills.map((s) => {
-                    const isSelected = selectedSkills.some((sk) => sk.name.toLowerCase() === s.toLowerCase());
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => (isSelected ? removeSkillPill(s) : addSkillPill(s))}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
-                          isSelected
-                            ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {isSelected ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                        {s}
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
 
               {/* Submit Button */}
-              <div className="pt-4">
-                <Button type="submit" disabled={loading} className="w-full py-3.5 text-base font-bold flex items-center justify-center gap-2">
+              <div className="pt-2">
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3.5 text-base font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+                >
                   {loading ? (
-                    'Creating Account & Generating Credential ID...'
+                    'Creating Student Account & Generating Login ID...'
                   ) : (
                     <>
-                      <span>Complete Registration</span>
+                      <span>Complete Registration & Generate Login ID</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </Button>
-                <p className="text-center text-xs text-slate-400 mt-3">
-                  By registering, your account will receive a permanent SkillMatch AI Credential ID.
+                <p className="text-center text-xs text-slate-500 mt-3">
+                  Every account receives a permanent SkillMatch AI Login ID (<span className="font-mono text-indigo-600 font-semibold">SKM-2026-XXXXXX</span>).
                 </p>
               </div>
 
-              <div className="text-center pt-2">
+              <div className="text-center pt-2 border-t border-slate-100">
                 <p className="text-xs text-slate-600">
                   Already registered?{' '}
-                  <Link to="/login" className="font-bold text-indigo-600 hover:text-indigo-700">
-                    Sign in to your account
+                  <Link to="/login" className="font-bold text-indigo-600 hover:text-indigo-700 underline">
+                    Log in with Login ID or Email
                   </Link>
                 </p>
               </div>

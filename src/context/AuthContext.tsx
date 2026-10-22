@@ -7,19 +7,24 @@ import { ApiService } from '../services/api';
 interface AuthContextType {
   user: UserProfile;
   isAuthenticated: boolean;
-  login: (email: string, pass: string) => Promise<boolean>;
+  isAdmin: boolean;
+  login: (identifier: string, pass: string) => Promise<boolean>;
   loginWithDemo: () => Promise<void>;
+  loginWithAdmin: () => Promise<void>;
   register: (profileData: {
     name: string;
     email: string;
+    rollNumber: string;
+    phone?: string;
+    department?: string;
     password: string;
-    passwordConfirm?: string;
+    confirmPassword?: string;
     college?: string;
     degree?: string;
     targetRole?: string;
   }) => Promise<any>;
-  verifyEmail: (token?: string) => Promise<any>;
-  resendVerification: () => Promise<any>;
+  verifyEmail: (code: string, identifier?: string) => Promise<any>;
+  resendVerification: (identifier?: string) => Promise<any>;
   logout: () => void;
   updateProfile: (updated: Partial<UserProfile>) => void;
   addSkill: (skill: UserSkill) => void;
@@ -39,6 +44,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return saved || DEFAULT_USER;
   });
 
+  const isAdmin = user?.role === 'admin';
+
   // Verify token on mount or fetch authenticated user details
   useEffect(() => {
     async function syncAuth() {
@@ -52,11 +59,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               ...user,
               id: res.user.id,
               credentialId: res.user.credentialId || res.user.credential_id || 'SKM-2026-DEMO01',
+              rollNumber: res.user.rollNumber || res.user.roll_number,
               name: res.user.name,
               email: res.user.email,
+              phone: res.user.phone || user.phone,
+              department: res.user.department || user.department,
               college: res.user.college || user.college,
               degree: res.user.degree || user.degree,
               targetRole: res.user.targetRole || user.targetRole,
+              role: res.user.role || 'student',
               emailVerified: Boolean(res.user.emailVerified)
             };
             setUser(mergedUser);
@@ -65,27 +76,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             StorageService.setAuthenticated(true);
           }
         } catch (err) {
-          // Fall back gracefully to local storage user
+          // Token expired or invalid
         }
       }
     }
     syncAuth();
   }, []);
 
-  const login = async (email: string, pass: string): Promise<boolean> => {
+  const login = async (identifier: string, pass: string): Promise<boolean> => {
     try {
-      const res = await ApiService.login(email, pass);
+      const res = await ApiService.login(identifier, pass);
       if (res.success && res.user) {
         const loggedInUser: UserProfile = {
           ...DEFAULT_USER,
           ...user,
           id: res.user.id,
-          credentialId: res.user.credentialId || 'SKM-2026-DEMO01',
+          credentialId: res.user.credentialId || res.user.credential_id || 'SKM-2026-DEMO01',
+          rollNumber: res.user.rollNumber || res.user.roll_number,
           name: res.user.name,
           email: res.user.email,
+          phone: res.user.phone || user.phone,
+          department: res.user.department || user.department,
           college: res.user.college || user.college,
           degree: res.user.degree || user.degree,
           targetRole: res.user.targetRole || user.targetRole,
+          role: res.user.role || 'student',
           emailVerified: Boolean(res.user.emailVerified)
         };
         setUser(loggedInUser);
@@ -95,46 +110,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return true;
       }
     } catch (err: any) {
-      // Fallback for offline demo credentials
-      if (email && pass && pass.length >= 6) {
-        const offlineUser: UserProfile = {
-          ...DEFAULT_USER,
-          email,
-          credentialId: 'SKM-2026-DEMO01',
-          emailVerified: true
-        };
-        StorageService.setUserProfile(offlineUser);
-        StorageService.setAuthenticated(true);
-        setUser(offlineUser);
-        setIsAuthenticated(true);
-        return true;
-      }
       throw err;
     }
     return false;
   };
 
   const loginWithDemo = async () => {
-    try {
-      await login('demo@skillmatch.ai', 'password123');
-    } catch (e) {
-      const demoUser: UserProfile = {
-        ...DEFAULT_USER,
-        credentialId: 'SKM-2026-DEMO01',
-        emailVerified: true
-      };
-      StorageService.setUserProfile(demoUser);
-      StorageService.setAuthenticated(true);
-      setUser(demoUser);
-      setIsAuthenticated(true);
-    }
+    await login('demo@skillmatch.ai', 'password123');
+  };
+
+  const loginWithAdmin = async () => {
+    await login('admin@skillmatch.ai', 'Admin@2026!');
   };
 
   const register = async (profileData: {
     name: string;
     email: string;
+    rollNumber: string;
+    phone?: string;
+    department?: string;
     password: string;
-    passwordConfirm?: string;
+    confirmPassword?: string;
     college?: string;
     degree?: string;
     targetRole?: string;
@@ -144,12 +140,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const newProfile: UserProfile = {
         ...DEFAULT_USER,
         id: res.user.id,
-        credentialId: res.user.credentialId,
+        credentialId: res.user.credentialId || res.loginId,
+        rollNumber: res.user.rollNumber,
         name: res.user.name,
         email: res.user.email,
+        phone: res.user.phone || '',
+        department: res.user.department || 'Computer Science & Engineering',
         college: res.user.college || 'Engineering College',
         degree: res.user.degree || 'B.Tech CS',
-        targetRole: res.user.targetRole || 'Java Developer',
+        targetRole: res.user.targetRole || 'Software Engineer',
+        role: 'student',
         emailVerified: false
       };
       setUser(newProfile);
@@ -160,18 +160,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return res;
   };
 
-  const verifyEmail = async (token?: string) => {
-    const res = await ApiService.verifyEmail(user.email, token);
+  const verifyEmail = async (code: string, identifier?: string) => {
+    const target = identifier || user.credentialId || user.email;
+    const res = await ApiService.verifyEmail(code, target);
     if (res.success) {
-      const updated = { ...user, emailVerified: true };
+      const updated: UserProfile = { ...user, emailVerified: true };
       setUser(updated);
       StorageService.setUserProfile(updated);
     }
     return res;
   };
 
-  const resendVerification = async () => {
-    return await ApiService.resendVerification(user.email);
+  const resendVerification = async (identifier?: string) => {
+    const target = identifier || user.credentialId || user.email;
+    return await ApiService.resendVerification(target);
   };
 
   const logout = () => {
@@ -187,20 +189,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addSkill = (skill: UserSkill) => {
-    const exists = user.skills.some((s) => s.name.toLowerCase() === skill.name.toLowerCase());
+    const exists = user.skills?.some((s) => s.name.toLowerCase() === skill.name.toLowerCase());
     if (!exists) {
-      const newSkills = [...user.skills, skill];
+      const newSkills = [...(user.skills || []), skill];
       updateProfile({ skills: newSkills });
     }
   };
 
   const removeSkill = (skillName: string) => {
-    const newSkills = user.skills.filter((s) => s.name.toLowerCase() !== skillName.toLowerCase());
+    const newSkills = (user.skills || []).filter((s) => s.name.toLowerCase() !== skillName.toLowerCase());
     updateProfile({ skills: newSkills });
   };
 
   const updateSkillProficiency = (skillName: string, proficiency: UserSkill['proficiency']) => {
-    const newSkills = user.skills.map((s) => (s.name.toLowerCase() === skillName.toLowerCase() ? { ...s, proficiency } : s));
+    const newSkills = (user.skills || []).map((s) => {
+      if (s.name.toLowerCase() === skillName.toLowerCase()) {
+        return { ...s, proficiency };
+      }
+      return s;
+    });
     updateProfile({ skills: newSkills });
   };
 
@@ -209,8 +216,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       value={{
         user,
         isAuthenticated,
+        isAdmin,
         login,
         loginWithDemo,
+        loginWithAdmin,
         register,
         verifyEmail,
         resendVerification,
@@ -218,7 +227,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updateProfile,
         addSkill,
         removeSkill,
-        updateSkillProficiency
+        updateSkillProficiency,
       }}
     >
       {children}
@@ -226,7 +235,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   );
 };
 
-export const useAuth = () => {
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');

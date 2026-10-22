@@ -9,6 +9,7 @@ export interface UserSkill {
 export interface UserProfile {
   id: string;
   credentialId?: string;
+  rollNumber?: string;
   emailVerified?: boolean;
   name: string;
   email: string;
@@ -16,15 +17,126 @@ export interface UserProfile {
   college: string;
   degree: string;
   department: string;
-  graduationYear: number;
-  cgpa: number;
-  skills: UserSkill[];
-  interests: string[];
-  targetRole: string;
-  preferredLocation: string;
-  workMode: 'Remote' | 'Hybrid' | 'On-site' | 'Any';
-  expectedSalary: string;
+  graduationYear?: number;
+  cgpa?: number;
+  role?: 'student' | 'admin';
+  skills?: UserSkill[];
+  interests?: string[];
+  targetRole?: string;
+  preferredLocation?: string;
+  workMode?: 'Remote' | 'Hybrid' | 'On-site' | 'Any';
+  expectedSalary?: string;
   bio?: string;
+  createdAt?: string;
+}
+
+export interface AdminStats {
+  totalCandidates: number;
+  verifiedCandidates: number;
+  unverifiedCandidates: number;
+  completedInterviews: number;
+  pendingInterviews: number;
+  avgResumeScore: number;
+  candidatesNeedingImprovement: number;
+  departmentDistribution: { department: string; count: number }[];
+  scoreRanges: { range: string; count: number }[];
+}
+
+export interface AdminCandidateSummary {
+  id: string;
+  name: string;
+  rollNumber: string;
+  credentialId: string;
+  email: string;
+  phone: string;
+  department: string;
+  college: string;
+  emailVerified: boolean;
+  resumeScore: number;
+  githubStatus: string;
+  latestInterviewScore: number | null;
+  interviewStatus: string;
+  createdAt: string;
+}
+
+export interface CandidateDetailData {
+  candidate: UserProfile;
+  resumes: {
+    id: string;
+    fileName: string;
+    targetRole: string;
+    score: number;
+    analysis: any;
+    createdAt: string;
+  }[];
+  jdMatches: {
+    id: string;
+    jobTitle: string;
+    companyName: string;
+    matchScore: number;
+    matchedSkills: string[];
+    missingSkills: string[];
+    createdAt: string;
+  }[];
+  githubVerifications: GitHubVerificationItem[];
+  interviews: {
+    id: string;
+    sessionId: string;
+    targetRole: string;
+    overallScore: number;
+    technicalScore: number;
+    communicationScore: number;
+    problemSolvingScore: number;
+    interviewType: string;
+    status: string;
+    report: any;
+    createdAt: string;
+  }[];
+  savedJobsCount: number;
+}
+
+export interface GitHubVerificationItem {
+  id: string;
+  repoUrl: string;
+  owner?: string;
+  repo?: string;
+  status: 'Verified' | 'Partially Verified' | 'Not Found' | 'Private or Inaccessible' | 'Verification Failed';
+  relevanceScore: number;
+  repoDetails: {
+    fullName?: string;
+    description?: string;
+    language?: string;
+    stars?: number;
+    forks?: number;
+    openIssues?: number;
+    topics?: string[];
+    hasReadme?: boolean;
+    isPrivate?: boolean;
+    lastUpdated?: string;
+  };
+  relevanceAnalysis: {
+    matchingTechnologies: string[];
+    evidenceSummary: string;
+  };
+  createdAt?: string;
+}
+
+export interface JDMatchResponse {
+  success: boolean;
+  jdMatchId: string;
+  scores: {
+    resumeQualityScore: number;
+    jdMatchScore: number;
+  };
+  matchResult: {
+    jobTitle: string;
+    companyName: string;
+    matchScore: number;
+    skillsFoundInResume: string[];
+    skillsMissingFromResume: string[];
+    keywordAdvice: string[];
+    prioritizedChecklist: string[];
+  };
 }
 
 export interface Job {

@@ -10,9 +10,10 @@ import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { VerifyEmail } from './pages/VerifyEmail';
 
-// The 9 Essential Modules (Section 2 of Master Prompt)
+// SkillMatch AI Platform Pages
 import { Dashboard } from './pages/Dashboard';
 import { ResumeAnalyzer } from './pages/ResumeAnalyzer';
+import { UploadResume } from './pages/UploadResume';
 import { SkillGap } from './pages/SkillGap';
 import { JobMatch } from './pages/JobMatch';
 import { CareerAdvisor } from './pages/CareerAdvisor';
@@ -22,6 +23,8 @@ import { SavedJobs } from './pages/SavedJobs';
 import { Profile } from './pages/Profile';
 import { Settings } from './pages/Settings';
 import { SalaryInsights } from './pages/SalaryInsights';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { GitHubVerification } from './pages/GitHubVerification';
 
 export default function App() {
   return (
@@ -35,50 +38,55 @@ export default function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
-            {/* SkillMatch AI Core Platform (9 Essential Modules) */}
+            {/* SkillMatch AI Core Platform */}
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               
               {/* Module 1: Career Dashboard */}
               <Route path="/dashboard" element={<Dashboard />} />
 
-              {/* Module 2: AI Voice Interview Agent (HIGHEST PRIORITY) */}
-              <Route path="/interview" element={<AIInterview />} />
+              {/* Module 2: Admin Command Center (Admin-Only) */}
+              <Route path="/admin" element={<AdminDashboard />} />
 
-              {/* Module 3: AI Resume Analyzer */}
+              {/* Module 3: Resume Upload & JD Matcher (Dual Scoring) */}
+              <Route path="/upload" element={<UploadResume />} />
               <Route path="/resume" element={<ResumeAnalyzer />} />
 
-              {/* Module 4: Skill Gap Analysis */}
+              {/* Module 4: GitHub Project Link Verification */}
+              <Route path="/github-verify" element={<GitHubVerification />} />
+
+              {/* Module 5: AI Voice Interview Agent */}
+              <Route path="/interview" element={<AIInterview />} />
+
+              {/* Module 6: Skill Gap Analysis */}
               <Route path="/skill-gap" element={<SkillGap />} />
 
-              {/* Module 5: Career and Job Matching */}
+              {/* Module 7: Career and Job Matching */}
               <Route path="/jobs" element={<JobMatch />} />
 
-              {/* Module 6: AI Career Advisor */}
+              {/* Module 8: AI Career Advisor */}
               <Route path="/advisor" element={<CareerAdvisor />} />
 
-              {/* Module 7: Learning and Development */}
+              {/* Module 9: Learning and Development */}
               <Route path="/learning" element={<LearningPath />} />
 
-              {/* Module 8: Saved Jobs */}
+              {/* Module 10: Saved Jobs */}
               <Route path="/saved-jobs" element={<SavedJobs />} />
 
-              {/* Module 9: Profile and Account Settings */}
+              {/* Module 11: Candidate Profile & Account Settings */}
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<Settings />} />
 
               {/* Secondary Feature: Salary Insights */}
               <Route path="/salary" element={<SalaryInsights />} />
 
-              {/* Merged Route Redirects (Ensuring zero broken URLs) */}
-              <Route path="/upload" element={<Navigate to="/resume" replace />} />
-              <Route path="/issues" element={<Navigate to="/resume" replace />} />
-              <Route path="/projects" element={<Navigate to="/resume" replace />} />
+              {/* Route Aliases */}
+              <Route path="/jd-matcher" element={<UploadResume />} />
+              <Route path="/projects" element={<GitHubVerification />} />
               <Route path="/skills" element={<Navigate to="/skill-gap" replace />} />
               <Route path="/college-industry" element={<Navigate to="/skill-gap" replace />} />
               <Route path="/roles" element={<Navigate to="/jobs" replace />} />
               <Route path="/companies" element={<Navigate to="/jobs" replace />} />
-              <Route path="/jd-matcher" element={<Navigate to="/jobs" replace />} />
               <Route path="/mock-interview" element={<Navigate to="/interview" replace />} />
               <Route path="/interview-prep" element={<Navigate to="/interview" replace />} />
               <Route path="/certifications" element={<Navigate to="/learning" replace />} />

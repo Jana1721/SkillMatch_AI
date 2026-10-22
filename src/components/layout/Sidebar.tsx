@@ -14,8 +14,12 @@ import {
   X,
   Sparkles,
   Mic,
-  ShieldCheck
+  ShieldCheck,
+  ShieldAlert,
+  UploadCloud,
+  CheckCircle2
 } from 'lucide-react';
+import { GithubIcon } from '../common/GithubIcon';
 import { useAuth } from '../../context/AuthContext';
 import { StorageService } from '../../utils/storage';
 
@@ -25,15 +29,16 @@ export interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const savedCount = StorageService.getSavedJobs().length;
 
-  // The 9 Essential Modules as defined in Section 2 of Master Prompt
+  // Navigation Items
   const navItems = [
     { label: 'Career Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { label: 'AI Voice Interview Agent', path: '/interview', icon: Mic, isVoice: true, badge: 'Voice AI' },
-    { label: 'AI Resume Analyzer', path: '/resume', icon: FileText, badge: 'ATS Studio' },
+    { label: 'Resume & JD Matcher', path: '/upload', icon: UploadCloud, badge: 'ATS Studio' },
+    { label: 'AI Voice Interview', path: '/interview', icon: Mic, isVoice: true, badge: 'Voice AI' },
+    { label: 'GitHub Verification', path: '/github-verify', icon: GithubIcon, badge: 'Code API' },
     { label: 'Skill Gap Analysis', path: '/skill-gap', icon: Target },
     { label: 'Career & Job Matching', path: '/jobs', icon: Briefcase },
     { label: 'AI Career Advisor', path: '/advisor', icon: Bot, isAi: true },
@@ -68,12 +73,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             onClick={onClose}
             className="flex items-center gap-2.5 group"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-200 group-hover:scale-105 transition-transform">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-600 flex items-center justify-center text-white shadow-md shadow-indigo-200 group-hover:scale-105 transition-transform">
               <Sparkles className="w-5 h-5" />
             </div>
             <div className="flex flex-col">
               <span className="font-extrabold text-base tracking-tight text-slate-900">
-                SkillMatch<span className="text-indigo-600 ml-0.5 font-black">AI</span>
+                SkillMatch<span className="text-emerald-600 ml-0.5 font-black">AI</span>
               </span>
               <span className="text-[10px] text-slate-500 font-medium -mt-1 tracking-wide">
                 Career Readiness Platform
@@ -92,8 +97,36 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
         {/* Navigation List */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+          {/* Admin Navigation (Prominent for admins) */}
+          {(isAdmin || user?.role === 'admin') && (
+            <div className="mb-3 pb-2 border-b border-purple-100">
+              <div className="px-3 pb-1 text-[10px] font-black uppercase tracking-wider text-purple-600">
+                Administrator
+              </div>
+              <NavLink
+                to="/admin"
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                    isActive
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
+                      : 'bg-purple-50 text-purple-900 hover:bg-purple-100'
+                  }`
+                }
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <ShieldAlert className="w-4 h-4 shrink-0 text-purple-600" />
+                  <span className="truncate">Admin Dashboard</span>
+                </div>
+                <span className="px-1.5 py-0.5 text-[9px] font-black bg-purple-200 text-purple-900 rounded uppercase">
+                  Staff
+                </span>
+              </NavLink>
+            </div>
+          )}
+
           <div className="px-3 pb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            Core Career Modules
+            Candidate Modules
           </div>
 
           {navItems.map((item) => {
@@ -127,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     {item.isVoice ? (
-                      <span className="px-1.5 py-0.5 text-[9px] font-black bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-md tracking-wider uppercase shadow-xs">
+                      <span className="px-1.5 py-0.5 text-[9px] font-black bg-gradient-to-r from-indigo-600 to-emerald-600 text-white rounded-md tracking-wider uppercase shadow-xs">
                         Voice AI
                       </span>
                     ) : item.isAi ? (
@@ -150,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           })}
         </nav>
 
-        {/* User Profile & Credential Footer */}
+        {/* User Profile & Credential Footer with Login ID */}
         <div className="p-3 border-t border-slate-100 bg-slate-50/70">
           <button
             onClick={() => {
@@ -159,13 +192,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             }}
             className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white hover:shadow-xs transition-all text-left cursor-pointer border border-transparent hover:border-slate-200"
           >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-600 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-emerald-600 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0">
               {user.name.charAt(0)}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="text-xs font-bold text-slate-900 truncate">{user.name}</p>
-                {user.emailVerified && <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />}
+                {user.emailVerified ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="Email Verified" />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Email Unverified" />
+                )}
               </div>
               <p className="font-mono text-[10px] text-indigo-600 font-bold truncate">
                 {user.credentialId || 'SKM-2026-ACTIVE'}
