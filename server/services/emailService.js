@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { dbRun, dbAll } from '../db/database.js';
@@ -5,19 +6,22 @@ import { dbRun, dbAll } from '../db/database.js';
 // Transporter configuration: uses SMTP env vars if provided, otherwise creates a development fallback
 let transporter = null;
 
-async function getTransporter() {
+export async function getTransporter() {
   if (transporter) return transporter;
 
-  // 1. Direct Gmail Configuration (GMAIL_USER and GMAIL_PASS / GMAIL_APP_PASS)
-  const gmailUser = process.env.GMAIL_USER || (process.env.SMTP_USER && process.env.SMTP_USER.endsWith('@gmail.com') ? process.env.SMTP_USER : null);
-  const gmailPass = process.env.GMAIL_PASS || process.env.GMAIL_APP_PASS || (gmailUser ? process.env.SMTP_PASS : null);
+  // 1. Direct Gmail Configuration (flexible env var naming & whitespace cleaning)
+  const rawUser = process.env.GMAIL_USER || process.env.EMAIL_USER || process.env.SMTP_USER || process.env.GMAIL_EMAIL || process.env.MAIL_USER;
+  const rawPass = process.env.GMAIL_PASS || process.env.GMAIL_APP_PASS || process.env.GMAIL_PASSWORD || process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || process.env.APP_PASSWORD || process.env.SMTP_PASS;
+
+  const gmailUser = rawUser ? rawUser.replace(/['"]/g, '').trim() : null;
+  const gmailPass = rawPass ? rawPass.replace(/['"]/g, '').replace(/\s+/g, '').trim() : null;
 
   if (gmailUser && gmailPass) {
     transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: gmailUser.trim(),
-        pass: gmailPass.replace(/\s+/g, '') // strip any spaces from Gmail App Password
+        user: gmailUser,
+        pass: gmailPass // sanitized: no spaces, no quotes
       }
     });
     console.log(`[Email Service] Configured live Gmail service for sender: ${gmailUser}`);
