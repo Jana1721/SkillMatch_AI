@@ -16,7 +16,9 @@ import {
   Plus,
   Check,
   X,
-  AlertCircle
+  AlertCircle,
+  Copy,
+  ShieldCheck
 } from 'lucide-react';
 
 export const Profile: React.FC = () => {
@@ -89,6 +91,24 @@ export const Profile: React.FC = () => {
     showToast('Profile updated successfully! AI matching scores refreshed.', 'success');
   };
 
+  const computeCandidateId = () => {
+    if (user.credentialId && user.credentialId.startsWith('KCE-')) {
+      return user.credentialId;
+    }
+    const roll = user.rollNumber || '2024CS01';
+    const rollYearMatch = roll.match(/20\d{2}/);
+    const year = rollYearMatch ? rollYearMatch[0] : (user.graduationYear || '2026');
+    const sanitizedRoll = roll.toUpperCase().replace(/\s+/g, '');
+    return `KCE-${year}-${sanitizedRoll}`;
+  };
+
+  const candidateId = computeCandidateId();
+
+  const copyCandidateId = () => {
+    navigator.clipboard.writeText(candidateId);
+    showToast('Candidate ID copied to clipboard!', 'success');
+  };
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto animate-fade-in pb-12">
       {/* Header */}
@@ -108,6 +128,50 @@ export const Profile: React.FC = () => {
           Save Profile
         </Button>
       </div>
+
+      {/* Candidate Credential ID Card (Format: KCE-<respective_year>-<respective_roll_number>) */}
+      <Card padding="md" className="bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white rounded-2xl shadow-xl border border-indigo-500/30">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-2">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">
+                Candidate Identity
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                {user.emailVerified ? 'Verified Student' : 'Active Account'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-2xl sm:text-3xl font-black text-emerald-400 tracking-wider">
+                {candidateId}
+              </span>
+              <button
+                type="button"
+                onClick={copyCandidateId}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                title="Copy Candidate ID"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Standardized format: <span className="font-mono text-indigo-300 font-semibold">KCE-&lt;year&gt;-&lt;roll_number&gt;</span> &bull; Roll Number: <span className="font-mono text-slate-200">{user.rollNumber || '2024CS01'}</span>
+            </p>
+          </div>
+
+          <div className="flex flex-wrap sm:flex-col gap-2 text-xs">
+            <div className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+              <span className="text-slate-400">College: </span>
+              <span className="font-bold text-white">{formData.college || 'Karpagam College of Engineering'}</span>
+            </div>
+            <div className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+              <span className="text-slate-400">Department: </span>
+              <span className="font-bold text-white">{formData.department || 'Computer Science & Engineering'}</span>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <form onSubmit={handleSaveProfile} className="space-y-8">
         {/* Section 1: Personal Information */}

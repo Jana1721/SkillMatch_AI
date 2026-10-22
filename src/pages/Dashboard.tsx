@@ -131,19 +131,24 @@ export const Dashboard: React.FC = () => {
         {/* Permanent Credential ID Card */}
         <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 sm:p-5 flex flex-col items-start md:items-end justify-center shrink-0">
           <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">
-            Permanent Credential ID
+            Candidate ID
           </span>
           <div className="flex items-center gap-2 mt-1">
             <span className="font-mono text-xl sm:text-2xl font-black tracking-wider text-white">
-              {safeUser.credentialId || 'SKM-2026-ACTIVE'}
+              {safeUser.credentialId && safeUser.credentialId.startsWith('KCE-')
+                ? safeUser.credentialId
+                : `KCE-${safeUser.graduationYear || '2026'}-${(safeUser.rollNumber || '2024CS01').toUpperCase().replace(/\s+/g, '')}`}
             </span>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(safeUser.credentialId || 'SKM-2026-ACTIVE');
-                showToast('Credential ID copied to clipboard!', 'info');
+                const cid = safeUser.credentialId && safeUser.credentialId.startsWith('KCE-')
+                  ? safeUser.credentialId
+                  : `KCE-${safeUser.graduationYear || '2026'}-${(safeUser.rollNumber || '2024CS01').toUpperCase().replace(/\s+/g, '')}`;
+                navigator.clipboard.writeText(cid);
+                showToast('Candidate ID copied to clipboard!', 'info');
               }}
               className="p-1.5 hover:bg-white/20 rounded-lg text-indigo-200 hover:text-white transition-colors"
-              title="Copy Credential ID"
+              title="Copy Candidate ID"
             >
               <Copy className="w-4 h-4" />
             </button>

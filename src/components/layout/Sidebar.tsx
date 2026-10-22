@@ -205,7 +205,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 )}
               </div>
               <p className="font-mono text-[10px] text-indigo-600 font-bold truncate">
-                {user.credentialId || 'SKM-2026-ACTIVE'}
+                {user.credentialId && user.credentialId.startsWith('KCE-')
+                  ? user.credentialId
+                  : `KCE-${user.graduationYear || '2026'}-${(user.rollNumber || '2024CS01').toUpperCase().replace(/\s+/g, '')}`}
               </p>
             </div>
           </button>

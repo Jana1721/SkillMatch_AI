@@ -8,37 +8,55 @@ let transporter = null;
 async function getTransporter() {
   if (transporter) return transporter;
 
+  // 1. Direct Gmail Configuration (GMAIL_USER and GMAIL_PASS / GMAIL_APP_PASS)
+  const gmailUser = process.env.GMAIL_USER || (process.env.SMTP_USER && process.env.SMTP_USER.endsWith('@gmail.com') ? process.env.SMTP_USER : null);
+  const gmailPass = process.env.GMAIL_PASS || process.env.GMAIL_APP_PASS || (gmailUser ? process.env.SMTP_PASS : null);
+
+  if (gmailUser && gmailPass) {
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: gmailUser.trim(),
+        pass: gmailPass.replace(/\s+/g, '') // strip any spaces from Gmail App Password
+      }
+    });
+    console.log(`[Email Service] Configured live Gmail service for sender: ${gmailUser}`);
+    return transporter;
+  }
+
+  // 2. Generic Custom SMTP (Resend, Brevo, SendGrid, Amazon SES)
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: process.env.SMTP_SECURE === 'true',
+      secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
       }
     });
     console.log('[Email Service] Configured live SMTP transporter via host:', process.env.SMTP_HOST);
-  } else {
-    // Development fallback using Ethereal or test stream
-    try {
-      const testAccount = await nodemailer.createTestAccount();
-      transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass
-        }
-      });
-      console.log('[Email Service] Initialized Ethereal test mailer for development:', testAccount.user);
-    } catch (err) {
-      console.warn('[Email Service] Ethereal init failed, using JSON transport fallback:', err.message);
-      transporter = nodemailer.createTransport({
-        jsonTransport: true
-      });
-    }
+    return transporter;
+  }
+
+  // 3. Development fallback using Ethereal or JSON transport
+  try {
+    const testAccount = await nodemailer.createTestAccount();
+    transporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: {
+        user: testAccount.user,
+        pass: testAccount.pass
+      }
+    });
+    console.log('[Email Service] Initialized Ethereal test mailer for development:', testAccount.user);
+  } catch (err) {
+    console.warn('[Email Service] Ethereal init failed, using JSON transport fallback:', err.message);
+    transporter = nodemailer.createTransport({
+      jsonTransport: true
+    });
   }
   return transporter;
 }
@@ -122,10 +140,12 @@ export async function sendVerificationEmail({ userId, name, email, credentialId,
     </html>
   `;
 
+  const senderEmail = process.env.GMAIL_USER || process.env.SMTP_USER || 'notifications@skillmatch.ai';
   let previewUrl = '';
+  console.log(`[Email Dispatch] 🔑 Generated Verification Code for ${email} is: ${token}`);
   try {
     const info = await mailer.sendMail({
-      from: '"SkillMatch AI" <notifications@skillmatch.ai>',
+      from: `"SkillMatch AI" <${senderEmail}>`,
       to: email,
       subject,
       html: bodyHtml

@@ -8,7 +8,6 @@ import {
   Lock,
   School,
   GraduationCap,
-  Briefcase,
   Phone,
   Hash,
   Building2,
@@ -36,8 +35,8 @@ export const Register: React.FC = () => {
   const [department, setDepartment] = useState('Computer Science & Engineering');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [targetRole, setTargetRole] = useState('Software Engineer');
   const [college, setCollege] = useState('');
+  const [yearOfStudy, setYearOfStudy] = useState('3rd Year');
   const [degree, setDegree] = useState('B.Tech / B.E.');
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -47,6 +46,7 @@ export const Register: React.FC = () => {
     credentialId: string;
     email: string;
     rollNumber: string;
+    verificationCode?: string;
     emailPreview?: string;
   } | null>(null);
 
@@ -66,14 +66,11 @@ export const Register: React.FC = () => {
     'Other Engineering'
   ];
 
-  const availableRoles = [
-    'Software Engineer',
-    'Full Stack Java Developer',
-    'Python & AI Developer',
-    'Cloud & DevOps Engineer',
-    'Data Analyst',
-    'ServiceNow Specialist',
-    'Cybersecurity Analyst'
+  const yearsOfStudyList = [
+    '1st Year',
+    '2nd Year',
+    '3rd Year',
+    '4th Year'
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,6 +83,7 @@ export const Register: React.FC = () => {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) newErrors.email = 'Enter a valid student email address.';
     if (!phone.trim()) newErrors.phone = 'Phone number is required.';
     if (!department) newErrors.department = 'Department is required.';
+    if (!college.trim()) newErrors.college = 'College name is required.';
     if (!password || password.length < 6) newErrors.password = 'Password must be at least 6 characters.';
     if (password !== passwordConfirm) newErrors.passwordConfirm = 'Passwords do not match.';
 
@@ -104,9 +102,9 @@ export const Register: React.FC = () => {
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
         department,
-        college: college.trim() || 'University Engineering College',
+        college: college.trim(),
         degree,
-        targetRole,
+        yearOfStudy,
         password,
         confirmPassword: passwordConfirm
       });
@@ -117,8 +115,12 @@ export const Register: React.FC = () => {
         credentialId: generatedId,
         email: email.trim().toLowerCase(),
         rollNumber: rollNumber.trim(),
+        verificationCode: res.verificationCode,
         emailPreview: res.emailPreview
       });
+      if (res.verificationCode) {
+        setVerificationCode(res.verificationCode);
+      }
       showToast(`Account created! Your unique Login ID is ${generatedId}`, 'success');
     } catch (err: any) {
       setErrors({ form: err.message || 'Registration failed. Please try again.' });
@@ -215,6 +217,21 @@ export const Register: React.FC = () => {
                 </p>
               </div>
 
+              {/* OTP Code Display Banner */}
+              {successData.verificationCode && (
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 my-3 text-center">
+                  <span className="text-[11px] uppercase font-bold text-amber-800 tracking-wider">
+                    Official Email Verification OTP Code
+                  </span>
+                  <div className="font-mono text-2xl font-black text-amber-900 tracking-[0.25em] mt-1">
+                    {successData.verificationCode}
+                  </div>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Dispatched to your student Gmail (<strong className="text-amber-900">{successData.email}</strong>). Enter code below to activate.
+                  </p>
+                </div>
+              )}
+
               {/* In-app preview for dev */}
               {successData.emailPreview && (
                 <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200 flex items-center justify-center gap-1.5">
@@ -241,7 +258,7 @@ export const Register: React.FC = () => {
                     maxLength={6}
                     value={verificationCode}
                     onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
+                    placeholder=""
                     className="w-full text-center text-2xl tracking-[0.5em] font-mono font-bold py-3 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 outline-none"
                   />
                 </div>
@@ -298,7 +315,7 @@ export const Register: React.FC = () => {
                         type="text"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
-                        placeholder="e.g. Arun Kumar"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
@@ -315,7 +332,7 @@ export const Register: React.FC = () => {
                         type="text"
                         value={rollNumber}
                         onChange={(e) => setRollNumber(e.target.value)}
-                        placeholder="e.g. 2024CS012"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
@@ -326,7 +343,7 @@ export const Register: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                      Student / College Email <span className="text-rose-500">*</span>
+                      Student Email <span className="text-rose-500">*</span>
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -334,7 +351,7 @@ export const Register: React.FC = () => {
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="e.g. student@college.edu"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
@@ -351,7 +368,7 @@ export const Register: React.FC = () => {
                         type="tel"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. +91 9876543210"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
@@ -398,7 +415,7 @@ export const Register: React.FC = () => {
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
@@ -415,7 +432,7 @@ export const Register: React.FC = () => {
                         type="password"
                         value={passwordConfirm}
                         onChange={(e) => setPasswordConfirm(e.target.value)}
-                        placeholder="••••••••"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
                     </div>
@@ -424,43 +441,48 @@ export const Register: React.FC = () => {
                 </div>
               </div>
 
-              {/* Section 3: Target Role & College */}
+              {/* Section 3: College Details (Removed Target Role) */}
               <div className="space-y-4 pt-2">
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                   <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">3</span>
-                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Target Career & College Details</h2>
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">College Details</h2>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Target Role</label>
-                    <div className="relative">
-                      <Briefcase className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <select
-                        value={targetRole}
-                        onChange={(e) => setTargetRole(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 outline-none transition"
-                      >
-                        {availableRoles.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">College / Institution</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      College Name <span className="text-rose-500">*</span>
+                    </label>
                     <div className="relative">
                       <School className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={college}
                         onChange={(e) => setCollege(e.target.value)}
-                        placeholder="e.g. National Institute of Technology"
+                        placeholder=""
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none transition"
                       />
+                    </div>
+                    {errors.college && <p className="text-xs text-rose-600 mt-1 font-semibold">{errors.college}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Year of Studying <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <GraduationCap className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <select
+                        value={yearOfStudy}
+                        onChange={(e) => setYearOfStudy(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 outline-none transition"
+                      >
+                        {yearsOfStudyList.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -483,7 +505,7 @@ export const Register: React.FC = () => {
                   )}
                 </Button>
                 <p className="text-center text-xs text-slate-500 mt-3">
-                  Every account receives a permanent SkillMatch AI Login ID (<span className="font-mono text-indigo-600 font-semibold">SKM-2026-XXXXXX</span>).
+                  Every account receives a permanent Candidate ID (<span className="font-mono text-indigo-600 font-semibold">KCE-&lt;year&gt;-&lt;rollNumber&gt;</span>).
                 </p>
               </div>
 

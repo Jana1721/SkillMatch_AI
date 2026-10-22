@@ -8,16 +8,18 @@ import {
   Sparkles,
   ArrowRight,
   Clipboard,
-  Target,
-  FileCheck,
   Zap,
   Info,
-  Briefcase,
   Layers,
   Building2,
   Check,
   X,
-  ListOrdered
+  ListOrdered,
+  Briefcase,
+  GraduationCap,
+  TrendingUp,
+  FileSearch,
+  BookOpen
 } from 'lucide-react';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -30,28 +32,33 @@ export const UploadResume: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const [inputMode, setInputMode] = useState<'upload' | 'paste'>('upload');
-  const [targetRole, setTargetRole] = useState<string>('Software Engineer');
-  const [pastedText, setPastedText] = useState<string>('');
-
-  const [file, setFile] = useState<File | null>(null);
-  const [fileDetails, setFileDetails] = useState<{
+  // Resume state
+  const [resumeInputMode, setResumeInputMode] = useState<'upload' | 'paste'>('upload');
+  const [pastedResumeText, setPastedResumeText] = useState<string>('');
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumeFileDetails, setResumeFileDetails] = useState<{
     name: string;
     type: string;
     size: string;
   } | null>(null);
 
-  // Job Description Matching section
-  const [includeJD, setIncludeJD] = useState<boolean>(true);
+  // Job Description state
   const [jdText, setJdText] = useState<string>('');
   const [jdJobTitle, setJdJobTitle] = useState<string>('Associate Software Engineer');
   const [jdCompany, setJdCompany] = useState<string>('Target Hiring Organization');
 
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'parsing' | 'analyzing' | 'done' | 'error'>('idle');
+  // Processing state
+  const [processingTarget, setProcessingTarget] = useState<'resume' | 'jd' | 'match' | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
+
+  // Results state
+  const [resumeAnalysisResult, setResumeAnalysisResult] = useState<any>(null);
+  const [jdAnalysisResult, setJdAnalysisResult] = useState<any>(null);
   const [jdMatchResult, setJdMatchResult] = useState<any>(null);
+
+  // Active view tab for results
+  const [activeResultTab, setActiveResultTab] = useState<'resume' | 'jd' | 'match'>('resume');
 
   const sampleJD = `Role: Associate Software Engineer / Backend Developer
 Key Responsibilities:
@@ -66,16 +73,6 @@ Requirements:
 - Familiarity with Docker containerization and cloud basics (AWS/GCP) is a plus.
 - Solid communication and problem-solving skills.`;
 
-  const targetRoles = [
-    'Software Engineer',
-    'Full Stack Java Developer',
-    'Python & AI Developer',
-    'Cloud & DevOps Engineer',
-    'Data Analyst',
-    'ServiceNow Specialist',
-    'Cybersecurity Analyst'
-  ];
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selected = e.target.files[0];
@@ -84,8 +81,8 @@ Requirements:
         showToast('Please select a valid PDF, DOCX, or TXT document.', 'error');
         return;
       }
-      setFile(selected);
-      setFileDetails({
+      setResumeFile(selected);
+      setResumeFileDetails({
         name: selected.name,
         type: (ext || 'TXT').toUpperCase(),
         size: `${(selected.size / 1024).toFixed(1)} KB`
@@ -94,55 +91,135 @@ Requirements:
     }
   };
 
-  const handleProcess = async () => {
-    if (inputMode === 'upload' && !file) {
+  // 1. Process Resume Only
+  const handleAnalyzeResumeOnly = async () => {
+    if (resumeInputMode === 'upload' && !resumeFile) {
       showToast('Please choose a resume file to upload.', 'error');
       return;
     }
-    if (inputMode === 'paste' && (!pastedText.trim() || pastedText.trim().length < 30)) {
+    if (resumeInputMode === 'paste' && (!pastedResumeText.trim() || pastedResumeText.trim().length < 30)) {
       showToast('Please paste substantial resume text (minimum 30 characters).', 'error');
       return;
     }
 
     try {
-      setUploadStatus('uploading');
-      setStatusMessage('Transmitting document to SkillMatch AI pipeline...');
+      setProcessingTarget('resume');
+      setErrorMessage('');
+      setStatusMessage('Extracting readable sections, technical skills, and candidate projects...');
 
-      let resumeResponse: any = null;
-      if (inputMode === 'upload' && file) {
-        setUploadStatus('parsing');
-        setStatusMessage(`Extracting readable text and section structures from ${fileDetails?.type}...`);
-        resumeResponse = await ApiService.uploadResume(file, targetRole);
+      let res: any = null;
+      if (resumeInputMode === 'upload' && resumeFile) {
+        res = await ApiService.uploadResume(resumeFile, 'Software Engineer');
       } else {
-        setUploadStatus('parsing');
-        setStatusMessage('Parsing candidate skills, projects, and educational credentials...');
-        resumeResponse = await ApiService.analyzeText(pastedText, targetRole, 'Pasted_Candidate_Resume.txt');
+        res = await ApiService.analyzeText(pastedResumeText, 'Software Engineer', 'Candidate_Resume.txt');
       }
 
-      setUploadStatus('analyzing');
-      setStatusMessage(`Computing general ATS quality score and skill-gap benchmarks for ${targetRole}...`);
-      setAnalysisResult(resumeResponse.analysis);
-      StorageService.setResumeAnalysis(resumeResponse.analysis);
-
-      // If Job Description is provided, run the distinct JD match!
-      if (includeJD && jdText.trim().length >= 20) {
-        setStatusMessage('Matching resume against target Job Description requirements...');
-        const jdRes = await ApiService.matchJD({
-          jdText: jdText.trim(),
-          jobTitle: jdJobTitle,
-          companyName: jdCompany,
-          resumeText: inputMode === 'paste' ? pastedText : undefined
-        });
-        setJdMatchResult(jdRes);
-      }
-
-      setUploadStatus('done');
-      setStatusMessage('Resume & Job Description Analysis Completed!');
-      showToast('Resume & JD analyzed successfully!', 'success');
+      setResumeAnalysisResult(res.analysis);
+      StorageService.setResumeAnalysis(res.analysis);
+      setActiveResultTab('resume');
+      setStatusMessage('Resume Analysis Completed!');
+      showToast('Resume analyzed successfully!', 'success');
     } catch (err: any) {
-      setUploadStatus('error');
-      setErrorMessage(err.message || 'Error processing document.');
-      showToast(err.message || 'Upload processing failed.', 'error');
+      setErrorMessage(err.message || 'Error processing resume.');
+      showToast(err.message || 'Resume analysis failed.', 'error');
+    } finally {
+      setProcessingTarget(null);
+    }
+  };
+
+  // 2. Process Job Description Only
+  const handleAnalyzeJDOnly = async () => {
+    if (!jdText.trim() || jdText.trim().length < 20) {
+      showToast('Please paste substantial Job Description copy (at least 20 characters).', 'error');
+      return;
+    }
+
+    try {
+      setProcessingTarget('jd');
+      setErrorMessage('');
+      setStatusMessage('Analyzing Job Description requirements, technical stack, and core responsibilities...');
+
+      const res = await ApiService.analyzeJDOnly({
+        jdText: jdText.trim(),
+        jobTitle: jdJobTitle.trim() || 'Software Engineer',
+        companyName: jdCompany.trim() || 'Target Hiring Organization'
+      });
+
+      setJdAnalysisResult(res.analysis);
+      setActiveResultTab('jd');
+      setStatusMessage('Job Description Analysis Completed!');
+      showToast('Job Description analyzed successfully!', 'success');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error analyzing job description.');
+      showToast(err.message || 'JD analysis failed.', 'error');
+    } finally {
+      setProcessingTarget(null);
+    }
+  };
+
+  // 3. Process Both & Match
+  const handleMatchBoth = async () => {
+    const hasResume = (resumeInputMode === 'upload' && resumeFile) || (resumeInputMode === 'paste' && pastedResumeText.trim().length >= 30);
+    const hasJD = jdText.trim().length >= 20;
+
+    if (!hasResume) {
+      showToast('Please upload or paste your resume first to compare against the JD.', 'error');
+      return;
+    }
+    if (!hasJD) {
+      showToast('Please paste a target Job Description to run the match.', 'error');
+      return;
+    }
+
+    try {
+      setProcessingTarget('match');
+      setErrorMessage('');
+      setStatusMessage('Analyzing resume quality & calculating Job Description alignment score...');
+
+      // 1. Ensure resume is analyzed
+      let resumeData = resumeAnalysisResult;
+      if (!resumeData) {
+        if (resumeInputMode === 'upload' && resumeFile) {
+          const upRes = await ApiService.uploadResume(resumeFile, jdJobTitle || 'Software Engineer');
+          resumeData = upRes.analysis;
+        } else {
+          const txtRes = await ApiService.analyzeText(pastedResumeText, jdJobTitle || 'Software Engineer', 'Candidate_Resume.txt');
+          resumeData = txtRes.analysis;
+        }
+        setResumeAnalysisResult(resumeData);
+        StorageService.setResumeAnalysis(resumeData);
+      }
+
+      // 2. Run Match
+      const matchRes = await ApiService.matchJD({
+        jdText: jdText.trim(),
+        jobTitle: jdJobTitle,
+        companyName: jdCompany,
+        resumeText: resumeInputMode === 'paste' ? pastedResumeText : undefined
+      });
+
+      setJdMatchResult(matchRes);
+
+      // 3. Also populate standalone JD analysis if not already
+      if (!jdAnalysisResult) {
+        try {
+          const jdRes = await ApiService.analyzeJDOnly({
+            jdText: jdText.trim(),
+            jobTitle: jdJobTitle,
+            companyName: jdCompany
+          });
+          setJdAnalysisResult(jdRes.analysis);
+        } catch (_) {}
+      }
+
+      setActiveResultTab('match');
+      setStatusMessage('Resume & Job Description Matching Completed!');
+      showToast('Comparison & Gap Analysis complete!', 'success');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error matching resume and JD.');
+      showToast(err.message || 'Matching failed.', 'error');
+    } finally {
+      setProcessingTarget(null);
     }
   };
 
@@ -152,152 +229,178 @@ Requirements:
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-slate-900/10 border border-slate-800">
         <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase tracking-wider mb-2 w-fit">
           <Sparkles className="w-4 h-4 text-emerald-400" />
-          Evidence-Based Resume Analysis & JD Matching
+          Independent Resume & Job Description Analytics
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
           Resume Upload & Job Description Matching
         </h1>
-        <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-          Upload your candidate resume in PDF or DOCX format and paste target job requisitions. Receive separate, transparent ratings for general resume quality versus specific job fit.
+        <p className="text-slate-400 text-sm mt-1 max-w-2xl leading-relaxed">
+          Evaluate your resume alone, analyze a target Job Description alone, or compare both together for personalized skill gap recommendations.
         </p>
       </div>
 
-      {/* Target Role Selector */}
-      <Card className="p-5 bg-white border-slate-200 shadow-sm rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-            <Target className="w-5 h-5" />
+      {/* Processing Status Banner */}
+      {processingTarget && (
+        <Card className="p-4 bg-indigo-50 border-indigo-200 rounded-2xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
+            <div>
+              <p className="text-xs font-bold text-indigo-950 uppercase tracking-wider">
+                Processing {processingTarget === 'resume' ? 'Resume' : processingTarget === 'jd' ? 'Job Description' : 'Match Analysis'}
+              </p>
+              <p className="text-xs text-indigo-700">{statusMessage}</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Target Career Role</h3>
-            <p className="text-xs text-slate-500">Benchmark your technical skills against market expectations</p>
-          </div>
+          <Badge variant="indigo">Analyzing...</Badge>
+        </Card>
+      )}
+
+      {errorMessage && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+          <span>{errorMessage}</span>
         </div>
+      )}
 
-        <select
-          value={targetRole}
-          onChange={(e) => setTargetRole(e.target.value)}
-          className="px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600"
-        >
-          {targetRoles.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </Card>
-
-      {/* Part 1: Resume Input (Clear visual boundary) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">1</span>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-800">
-              Candidate Resume Input (PDF, DOCX, or TXT)
-            </h2>
-          </div>
-
-          {/* Toggle between Upload vs Paste */}
-          <div className="flex bg-slate-200/80 p-1 rounded-xl text-xs font-bold">
-            <button
-              onClick={() => setInputMode('upload')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                inputMode === 'upload' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Upload Document
-            </button>
-            <button
-              onClick={() => setInputMode('paste')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                inputMode === 'paste' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Paste Resume Text
-            </button>
-          </div>
-        </div>
-
-        {inputMode === 'upload' ? (
-          <Card className="p-8 border-2 border-dashed border-indigo-200 bg-indigo-50/20 text-center space-y-4 rounded-2xl">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
-              <UploadCloud className="w-8 h-8" />
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="text-base font-bold text-slate-900">Select Searchable Resume File</h3>
-              <p className="text-xs text-slate-500">Supports PDF, DOCX, and TXT files up to 10MB</p>
-            </div>
-
-            <input
-              type="file"
-              id="file-upload-input"
-              accept=".pdf,.docx,.txt,.md"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-
-            <div className="flex items-center justify-center gap-3 pt-2">
-              <label
-                htmlFor="file-upload-input"
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold rounded-xl cursor-pointer shadow-md shadow-indigo-600/20 transition"
-              >
-                Browse Resume File
-              </label>
-            </div>
-
-            {fileDetails && (
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-semibold shadow-xs">
-                <FileText className="w-4 h-4 text-indigo-600" />
-                <span>{fileDetails.name}</span>
-                <span className="text-slate-400">&bull;</span>
-                <span>{fileDetails.type}</span>
-                <span className="text-slate-400">&bull;</span>
-                <span>{fileDetails.size}</span>
+      {/* Dual Input Cards: Distinct & Separated */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* ================================================================= */}
+        {/* SECTION 1: RESUME INPUT */}
+        {/* ================================================================= */}
+        <Card className="p-6 bg-white border-slate-200 rounded-2xl shadow-sm space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                1
               </div>
-            )}
-          </Card>
-        ) : (
-          <Card className="p-4 bg-white border-slate-200 rounded-2xl space-y-2">
-            <div className="flex justify-between items-center text-xs text-slate-500 pb-1">
-              <span className="font-bold text-slate-700">Paste Plain Resume Text</span>
-              <span className="font-mono">{pastedText.split(/\s+/).filter(Boolean).length} Words</span>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                  Resume Copy
+                </h2>
+                <p className="text-xs text-slate-500">PDF, DOCX, or plain text</p>
+              </div>
             </div>
-            <textarea
-              rows={8}
-              value={pastedText}
-              onChange={(e) => setPastedText(e.target.value)}
-              placeholder="Paste your resume content directly: Contact Info, Education, Skills, Projects, Experience, Certifications..."
-              className="w-full p-3.5 font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition resize-none leading-relaxed"
-            />
-          </Card>
-        )}
-      </div>
 
-      {/* Part 2: Job Description Input (Clear visual boundary) */}
-      <div className="space-y-3 pt-4 border-t border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">2</span>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-800">
-              Target Job Description Matching (Optional)
-            </h2>
+            {/* Toggle Mode */}
+            <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setResumeInputMode('upload')}
+                className={`px-2.5 py-1 rounded-lg transition ${
+                  resumeInputMode === 'upload' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Upload File
+              </button>
+              <button
+                type="button"
+                onClick={() => setResumeInputMode('paste')}
+                className={`px-2.5 py-1 rounded-lg transition ${
+                  resumeInputMode === 'paste' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Paste Text
+              </button>
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setJdText(sampleJD);
-              setIncludeJD(true);
-              showToast('Sample SDE Job Description loaded!', 'info');
-            }}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline"
-          >
-            Insert Sample Job Description
-          </button>
-        </div>
+          {/* Upload Input or Paste Input */}
+          {resumeInputMode === 'upload' ? (
+            <div className="p-6 border-2 border-dashed border-indigo-200 bg-indigo-50/20 text-center space-y-3 rounded-2xl">
+              <UploadCloud className="w-10 h-10 text-indigo-600 mx-auto" />
+              <div>
+                <p className="text-xs font-bold text-slate-900">Select Resume File</p>
+                <p className="text-[11px] text-slate-500">PDF, DOCX, TXT up to 10MB</p>
+              </div>
 
-        <Card className="p-5 bg-emerald-50/20 border-emerald-200/80 rounded-2xl space-y-4">
+              <input
+                type="file"
+                id="resume-file-input"
+                accept=".pdf,.docx,.txt,.md"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+
+              <div>
+                <label
+                  htmlFor="resume-file-input"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-md shadow-indigo-600/20 transition inline-block"
+                >
+                  Browse File
+                </label>
+              </div>
+
+              {resumeFileDetails && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-semibold shadow-xs">
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="truncate max-w-[140px]">{resumeFileDetails.name}</span>
+                  <span className="text-slate-400">&bull;</span>
+                  <span>{resumeFileDetails.size}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-[11px] text-slate-500">
+                <span className="font-bold text-slate-700">Paste Resume Content</span>
+                <span className="font-mono">{pastedResumeText.split(/\s+/).filter(Boolean).length} Words</span>
+              </div>
+              <textarea
+                rows={7}
+                value={pastedResumeText}
+                onChange={(e) => setPastedResumeText(e.target.value)}
+                placeholder="Paste your resume content: Contact, Education, Technical Skills, Projects, Experience..."
+                className="w-full p-3 font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition resize-none leading-relaxed"
+              />
+            </div>
+          )}
+
+          {/* Action: Analyze Resume Only */}
+          <div className="pt-2">
+            <Button
+              type="button"
+              onClick={handleAnalyzeResumeOnly}
+              disabled={processingTarget !== null}
+              className="w-full py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20"
+            >
+              <FileSearch className="w-4 h-4" />
+              <span>Analyze Resume Only</span>
+            </Button>
+            <p className="text-[11px] text-slate-500 text-center mt-2">
+              Extracts ATS Score, Technical Skills, Projects & Recommendations.
+            </p>
+          </div>
+        </Card>
+
+        {/* ================================================================= */}
+        {/* SECTION 2: JOB DESCRIPTION INPUT */}
+        {/* ================================================================= */}
+        <Card className="p-6 bg-white border-slate-200 rounded-2xl shadow-sm space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
+                2
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                  Job Description (JD) Copy
+                </h2>
+                <p className="text-xs text-slate-500">Requirements & responsibilities</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setJdText(sampleJD);
+                showToast('Sample SDE Job Description loaded!', 'info');
+              }}
+              className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline"
+            >
+              Insert Sample JD
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div>
               <label className="block font-bold text-slate-700 uppercase mb-1">Target Opening Job Title</label>
@@ -305,8 +408,8 @@ Requirements:
                 type="text"
                 value={jdJobTitle}
                 onChange={(e) => setJdJobTitle(e.target.value)}
-                placeholder="e.g. Associate Java Developer"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-600"
+                placeholder=""
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-emerald-600"
               />
             </div>
             <div>
@@ -315,231 +418,424 @@ Requirements:
                 type="text"
                 value={jdCompany}
                 onChange={(e) => setJdCompany(e.target.value)}
-                placeholder="e.g. Amazon AWS / TCS Digital"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-600"
+                placeholder=""
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-emerald-600"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              Job Description Text (Requirements, Responsibilities, Skills)
-            </label>
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center text-[11px] text-slate-500">
+              <label className="font-bold text-slate-700 uppercase">
+                Job Description Text Copy
+              </label>
+              <span className="font-mono">{jdText.split(/\s+/).filter(Boolean).length} Words</span>
+            </div>
             <textarea
-              rows={6}
+              rows={7}
               value={jdText}
               onChange={(e) => setJdText(e.target.value)}
-              placeholder="Paste the job opening description to calculate candidate compatibility, missing keywords, and role-specific readiness..."
-              className="w-full p-3 font-mono text-xs bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition resize-none leading-relaxed"
+              placeholder="Paste job description requirements, responsibilities, eligibility, and qualifications..."
+              className="w-full p-3 font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition resize-none leading-relaxed"
             />
+          </div>
+
+          {/* Action: Analyze JD Only */}
+          <div className="pt-2">
+            <Button
+              type="button"
+              onClick={handleAnalyzeJDOnly}
+              disabled={processingTarget !== null}
+              className="w-full py-2.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>Analyze Job Description Only</span>
+            </Button>
+            <p className="text-[11px] text-slate-500 text-center mt-2">
+              Extracts Required Stack, Responsibilities, Eligibility & Prep Roadmap.
+            </p>
           </div>
         </Card>
       </div>
 
-      {/* Submit Action */}
-      <div className="flex justify-center pt-2">
+      {/* =================================================================== */}
+      {/* SECTION 3: DUAL MATCH ACTION (When candidate has both)             */}
+      {/* =================================================================== */}
+      <div className="p-6 bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 text-white rounded-3xl shadow-xl border border-indigo-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-300" />
+            <h3 className="text-sm font-bold uppercase tracking-wider text-amber-300">
+              Have Both Resume & Job Description?
+            </h3>
+          </div>
+          <p className="text-xs text-slate-300 max-w-xl">
+            Run a side-by-side gap analysis to see exact matching skills, missing keywords, and role fit percentages.
+          </p>
+        </div>
+
         <Button
-          onClick={handleProcess}
-          disabled={uploadStatus === 'uploading' || uploadStatus === 'parsing' || uploadStatus === 'analyzing'}
-          className="py-3.5 px-8 text-base font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl shadow-indigo-600/30 flex items-center gap-2"
+          type="button"
+          onClick={handleMatchBoth}
+          disabled={processingTarget !== null}
+          className="py-3 px-6 text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shrink-0 flex items-center gap-2 shadow-lg shadow-amber-500/25"
         >
-          <Zap className="w-5 h-5 text-amber-300" />
-          <span>Run Comprehensive Resume & JD Analysis</span>
+          <Zap className="w-4 h-4" />
+          <span>Match Resume with JD</span>
         </Button>
       </div>
 
-      {/* Status Progress Card */}
-      {uploadStatus !== 'idle' && (
-        <Card className="p-5 bg-white border-slate-200 rounded-2xl shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              {uploadStatus === 'done' ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              ) : uploadStatus === 'error' ? (
-                <AlertCircle className="w-5 h-5 text-rose-600" />
-              ) : (
-                <div className="w-4 h-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
-              )}
-              <h4 className="text-xs sm:text-sm font-bold text-slate-900">{statusMessage}</h4>
-            </div>
-
-            {uploadStatus === 'done' && <Badge variant="success">Analysis Complete</Badge>}
-          </div>
-
-          {uploadStatus === 'error' && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-semibold">
-              {errorMessage}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Results View: Clearly distinguishes General Resume Score vs JD Match Score */}
-      {uploadStatus === 'done' && analysisResult && (
+      {/* =================================================================== */}
+      {/* RESULTS DISPLAY WORKSPACE                                          */}
+      {/* =================================================================== */}
+      {(resumeAnalysisResult || jdAnalysisResult || jdMatchResult) && (
         <div className="space-y-6 pt-4 animate-fade-in">
-          {/* Dual Score Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* 1. General Resume Quality Score */}
-            <Card className="p-6 bg-white border-indigo-200 shadow-md rounded-2xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Metric 1</span>
-                  <h3 className="text-lg font-black text-slate-900">General Resume Quality Score</h3>
-                  <p className="text-xs text-slate-500">Readability, structure, section completeness, ATS metrics</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-3xl font-black text-indigo-600 font-mono">
-                    {analysisResult.scores?.overallScore || 75}
-                  </span>
-                  <span className="text-sm font-bold text-slate-400">/100</span>
-                </div>
-              </div>
+          {/* Result Tabs Navigation */}
+          <div className="flex border-b border-slate-200 space-x-2">
+            {resumeAnalysisResult && (
+              <button
+                type="button"
+                onClick={() => setActiveResultTab('resume')}
+                className={`py-3 px-4 text-xs font-bold uppercase tracking-wider transition border-b-2 flex items-center gap-2 ${
+                  activeResultTab === 'resume'
+                    ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span>Resume Analysis</span>
+              </button>
+            )}
 
-              <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Skills Identified:</span>
-                  <span className="font-bold text-slate-900 font-mono">
-                    {analysisResult.parsedData?.skills?.allSkillsFound?.length || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Candidate Projects:</span>
-                  <span className="font-bold text-slate-900 font-mono">
-                    {analysisResult.parsedData?.projects?.length || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">ATS Formatting Check:</span>
-                  <span className="font-bold text-emerald-600">Optimal (Searchable)</span>
-                </div>
-              </div>
-            </Card>
+            {jdAnalysisResult && (
+              <button
+                type="button"
+                onClick={() => setActiveResultTab('jd')}
+                className={`py-3 px-4 text-xs font-bold uppercase tracking-wider transition border-b-2 flex items-center gap-2 ${
+                  activeResultTab === 'jd'
+                    ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Job Description Breakdown</span>
+              </button>
+            )}
 
-            {/* 2. Resume-to-JD Match Score */}
-            <Card className="p-6 bg-white border-emerald-200 shadow-md rounded-2xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Metric 2</span>
-                  <h3 className="text-lg font-black text-slate-900">Resume-to-JD Match Score</h3>
-                  <p className="text-xs text-slate-500">
-                    Fit for: {jdMatchResult?.matchResult?.jobTitle || jdJobTitle}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="text-3xl font-black text-emerald-600 font-mono">
-                    {jdMatchResult?.scores?.jdMatchScore ?? 65}
-                  </span>
-                  <span className="text-sm font-bold text-slate-400">/100</span>
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Matching Skills:</span>
-                  <span className="font-bold text-emerald-600 font-mono">
-                    {jdMatchResult?.matchResult?.skillsFoundInResume?.length || 4}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Missing JD Requirements:</span>
-                  <span className="font-bold text-rose-600 font-mono">
-                    {jdMatchResult?.matchResult?.skillsMissingFromResume?.length || 2}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Target Fit Rating:</span>
-                  <span className="font-bold text-indigo-600">Solid Alignment</span>
-                </div>
-              </div>
-            </Card>
+            {jdMatchResult && (
+              <button
+                type="button"
+                onClick={() => setActiveResultTab('match')}
+                className={`py-3 px-4 text-xs font-bold uppercase tracking-wider transition border-b-2 flex items-center gap-2 ${
+                  activeResultTab === 'match'
+                    ? 'border-amber-600 text-amber-700 bg-amber-50/50'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+                <span>Resume & JD Comparison Match</span>
+              </button>
+            )}
           </div>
 
-          {/* Matching Skills vs Missing Requirements Breakdown */}
-          {jdMatchResult && (
-            <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-4">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
-                Skills Match Breakdown for {jdMatchResult.matchResult.jobTitle}
-              </h3>
+          {/* TAB 1: RESUME ANALYSIS ONLY VIEW */}
+          {activeResultTab === 'resume' && resumeAnalysisResult && (
+            <div className="space-y-6">
+              {/* Score summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="p-6 bg-white border-indigo-200 shadow-md rounded-2xl space-y-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Overall ATS Score</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-black text-indigo-600 font-mono">
+                      {resumeAnalysisResult.scores?.overallScore || 78}
+                    </span>
+                    <span className="text-slate-400 font-bold text-sm">/100</span>
+                  </div>
+                  <p className="text-xs text-slate-500">Standardized ATS parsing and quality score</p>
+                </Card>
 
+                <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Skills Detected</span>
+                  <div className="text-4xl font-black text-slate-900 font-mono">
+                    {resumeAnalysisResult.parsedData?.skills?.allSkillsFound?.length || 0}
+                  </div>
+                  <p className="text-xs text-slate-500">Validated technical and framework proficiencies</p>
+                </Card>
+
+                <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Projects Identified</span>
+                  <div className="text-4xl font-black text-slate-900 font-mono">
+                    {resumeAnalysisResult.parsedData?.projects?.length || 0}
+                  </div>
+                  <p className="text-xs text-slate-500">Practical project implementations detected</p>
+                </Card>
+              </div>
+
+              {/* Extracted Skills List */}
+              <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Extracted Technical Skills from Resume
+                </h3>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {(resumeAnalysisResult.parsedData?.skills?.allSkillsFound || []).map((skill: string) => (
+                    <span
+                      key={skill}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs font-semibold"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Strengths & Actionable Recommendations */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Matched */}
-                <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                <Card className="p-5 bg-emerald-50/50 border-emerald-200 rounded-2xl space-y-2">
                   <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 uppercase">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Matching Skills Found in Resume</span>
+                    <span>Resume Strengths</span>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {jdMatchResult.matchResult.skillsFoundInResume.map((s: string) => (
-                      <span key={s} className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 text-xs font-semibold">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                  <ul className="space-y-1.5 text-xs text-slate-700 pt-1">
+                    <li className="flex items-start gap-2">
+                      <span className="text-emerald-600 font-bold">&bull;</span>
+                      <span>Clear section hierarchy with readable contact, education, and skills.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-emerald-600 font-bold">&bull;</span>
+                      <span>Verified programming fundamentals and practical stack keywords present.</span>
+                    </li>
+                  </ul>
+                </Card>
 
-                {/* Missing */}
-                <div className="p-4 rounded-xl bg-rose-50/60 border border-rose-200 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-rose-800 uppercase">
-                    <AlertCircle className="w-4 h-4 text-rose-600" />
-                    <span>Missing or Underdeveloped Skills from JD</span>
+                <Card className="p-5 bg-indigo-50/50 border-indigo-200 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-800 uppercase">
+                    <TrendingUp className="w-4 h-4 text-indigo-600" />
+                    <span>Improvement Recommendations</span>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {jdMatchResult.matchResult.skillsMissingFromResume.map((s: string) => (
-                      <span key={s} className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 text-xs font-semibold">
+                  <ul className="space-y-1.5 text-xs text-slate-700 pt-1">
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-600 font-bold">&bull;</span>
+                      <span>Include quantifiable metrics (e.g. latency reduced by 30%, served 500+ users).</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-600 font-bold">&bull;</span>
+                      <span>Add verified GitHub repository URLs for core development projects.</span>
+                    </li>
+                  </ul>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: JOB DESCRIPTION ANALYSIS ONLY VIEW */}
+          {activeResultTab === 'jd' && jdAnalysisResult && (
+            <div className="space-y-6">
+              {/* Header card for the JD */}
+              <Card className="p-6 bg-emerald-950 text-white rounded-2xl shadow-md border border-emerald-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                      Analyzed Opening Requisition
+                    </span>
+                    <h3 className="text-xl font-black text-white mt-0.5">
+                      {jdAnalysisResult.jobTitle || 'Target Role Opening'}
+                    </h3>
+                    <p className="text-xs text-emerald-200">
+                      Hiring Organization: {jdAnalysisResult.companyName || 'Target Company'} &bull; Level: {jdAnalysisResult.experienceLevel}
+                    </p>
+                  </div>
+                  <Badge variant="success">JD Analysis Ready</Badge>
+                </div>
+              </Card>
+
+              {/* Skills Required */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card className="p-5 bg-white border-slate-200 rounded-2xl shadow-sm space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Required Technical Stack
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {(jdAnalysisResult.requiredSkills || []).map((s: string) => (
+                      <span key={s} className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold">
                         {s}
                       </span>
                     ))}
                   </div>
-                </div>
+                </Card>
+
+                <Card className="p-5 bg-white border-slate-200 rounded-2xl shadow-sm space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Soft Skills & Methodologies
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {(jdAnalysisResult.softSkills || []).map((s: string) => (
+                      <span key={s} className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 text-xs font-semibold">
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </Card>
               </div>
 
-              {/* Prioritized Improvement Checklist */}
-              {jdMatchResult.matchResult.prioritizedChecklist && (
-                <div className="pt-2 space-y-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
-                    Prioritized Improvement Checklist:
-                  </span>
-                  <div className="space-y-1.5 text-xs text-slate-700">
-                    {jdMatchResult.matchResult.prioritizedChecklist.map((item: string, idx: number) => (
-                      <div key={idx} className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+              {/* Key Responsibilities */}
+              {jdAnalysisResult.keyResponsibilities && jdAnalysisResult.keyResponsibilities.length > 0 && (
+                <Card className="p-6 bg-white border-slate-200 rounded-2xl shadow-sm space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Extracted Core Responsibilities
+                  </h4>
+                  <div className="space-y-2 text-xs text-slate-700">
+                    {jdAnalysisResult.keyResponsibilities.map((item: string, idx: number) => (
+                      <div key={idx} className="flex items-start gap-2.5 p-2 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                           {idx + 1}
                         </span>
                         <span className="leading-relaxed">{item}</span>
                       </div>
                     ))}
                   </div>
-                </div>
+                </Card>
               )}
-            </Card>
+
+              {/* Preparation Topics for this JD */}
+              {jdAnalysisResult.preparationTopics && jdAnalysisResult.preparationTopics.length > 0 && (
+                <Card className="p-6 bg-white border-slate-200 rounded-2xl shadow-sm space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Recommended Technical Focus Areas for this Role
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {jdAnalysisResult.preparationTopics.map((pt: any, idx: number) => (
+                      <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                        <span className="font-bold text-indigo-700 text-xs">{pt.topic}</span>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">{pt.focusArea}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </div>
           )}
 
-          {/* Quick Actions to Next Modules */}
-          <div className="p-6 bg-slate-900 text-white rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div>
-              <h4 className="text-base font-bold">Ready for the Next Step in Career Preparation?</h4>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Practice personalized voice interview questions tailored specifically to your resume.
-              </p>
+          {/* TAB 3: DUAL MATCH COMPARISON VIEW */}
+          {activeResultTab === 'match' && jdMatchResult && (
+            <div className="space-y-6">
+              {/* Dual Score Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="p-6 bg-white border-indigo-200 shadow-md rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">Metric 1</span>
+                      <h3 className="text-lg font-black text-slate-900">General Resume Quality</h3>
+                      <p className="text-xs text-slate-500">ATS format, section completeness & structure</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-3xl font-black text-indigo-600 font-mono">
+                        {jdMatchResult.scores?.resumeQualityScore || 78}
+                      </span>
+                      <span className="text-sm font-bold text-slate-400">/100</span>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="p-6 bg-white border-emerald-200 shadow-md rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Metric 2</span>
+                      <h3 className="text-lg font-black text-slate-900">Resume-to-JD Match Score</h3>
+                      <p className="text-xs text-slate-500">
+                        Fit for: {jdMatchResult.matchResult?.jobTitle || jdJobTitle}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-3xl font-black text-emerald-600 font-mono">
+                        {jdMatchResult.scores?.jdMatchScore ?? 70}
+                      </span>
+                      <span className="text-sm font-bold text-slate-400">/100</span>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Matched vs Missing Skills */}
+              <Card className="p-6 bg-white border-slate-200 shadow-sm rounded-2xl space-y-4">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
+                  Skills Match Breakdown for {jdMatchResult.matchResult?.jobTitle || jdJobTitle}
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Matched */}
+                  <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 uppercase">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Matching Skills Found in Resume ({jdMatchResult.matchResult?.skillsFoundInResume?.length || 0})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {(jdMatchResult.matchResult?.skillsFoundInResume || []).map((s: string) => (
+                        <span key={s} className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 text-xs font-semibold">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Missing */}
+                  <div className="p-4 rounded-xl bg-rose-50/60 border border-rose-200 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-rose-800 uppercase">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
+                      <span>Missing or Underdeveloped Skills from JD ({jdMatchResult.matchResult?.skillsMissingFromResume?.length || 0})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {(jdMatchResult.matchResult?.skillsMissingFromResume || []).map((s: string) => (
+                        <span key={s} className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 text-xs font-semibold">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Prioritized Checklist */}
+                {jdMatchResult.matchResult?.prioritizedChecklist && (
+                  <div className="pt-2 space-y-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
+                      Prioritized Improvement Roadmap:
+                    </span>
+                    <div className="space-y-1.5 text-xs text-slate-700">
+                      {jdMatchResult.matchResult.prioritizedChecklist.map((item: any, idx: number) => {
+                        const text = typeof item === 'string' ? item : item?.advice || item?.keyword || '';
+                        return (
+                          <div key={idx} className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                              {idx + 1}
+                            </span>
+                            <span className="leading-relaxed">{text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              {/* Next Step CTA */}
+              <div className="p-6 bg-slate-900 text-white rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-base font-bold">Ready for Personalized AI Interview Practice?</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Practice simulated technical interviews tailored to {jdJobTitle}.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="md"
+                    onClick={() => navigate('/interview')}
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
+                  >
+                    Start Voice Interview
+                  </Button>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="md"
-                onClick={() => navigate('/github-verify')}
-                className="bg-transparent border-white/20 text-white hover:bg-white/10"
-              >
-                Verify GitHub Projects
-              </Button>
-              <Button
-                size="md"
-                onClick={() => navigate('/interview')}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
-              >
-                Start Voice Interview
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>

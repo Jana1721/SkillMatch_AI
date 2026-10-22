@@ -5,9 +5,6 @@ import {
   ArrowRight,
   Lock,
   Mail,
-  ShieldCheck,
-  ShieldAlert,
-  UserCheck,
   KeyRound,
   X
 } from 'lucide-react';
@@ -19,11 +16,11 @@ import { ApiService } from '../services/api';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { login, loginWithDemo, loginWithAdmin } = useAuth();
+  const { login } = useAuth();
   const { showToast } = useToast();
 
-  const [identifier, setIdentifier] = useState('demo@skillmatch.ai');
-  const [password, setPassword] = useState('password123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -46,44 +43,20 @@ export const Login: React.FC = () => {
 
     setLoading(true);
     try {
-      const success = await login(identifier.trim(), password);
-      if (success) {
-        showToast('Welcome back to SkillMatch AI!', 'success');
-        if (identifier.toLowerCase().includes('admin')) {
+      const loggedUser = await login(identifier.trim(), password);
+      if (loggedUser) {
+        const role = loggedUser.role || (identifier.toLowerCase().includes('admin') ? 'admin' : 'student');
+        if (role === 'admin') {
+          showToast('Administrator privileges verified. Access granted to Admin Portal.', 'success');
           navigate('/admin');
         } else {
+          showToast(`Welcome back, ${loggedUser.name || 'Candidate'}!`, 'success');
           navigate('/dashboard');
         }
       }
     } catch (err: any) {
       setError(err.message || 'Invalid Login ID, Email, or password.');
       showToast(err.message || 'Login failed', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDemoStudentLogin = async () => {
-    setLoading(true);
-    try {
-      await loginWithDemo();
-      showToast('Logged in as Verified Candidate [ID: SKM-2026-DEMO01]', 'success');
-      navigate('/dashboard');
-    } catch (err: any) {
-      showToast(err.message || 'Demo login failed', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAdminPortalLogin = async () => {
-    setLoading(true);
-    try {
-      await loginWithAdmin();
-      showToast('Administrator privileges verified [ID: SKM-ADMIN-01]', 'success');
-      navigate('/admin');
-    } catch (err: any) {
-      showToast(err.message || 'Admin login failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -157,7 +130,7 @@ export const Login: React.FC = () => {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Login ID, Roll Number, or Email
+                Login ID or Student Email
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -165,7 +138,7 @@ export const Login: React.FC = () => {
                   type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="SKM-2026-XXXXXX or student@college.edu"
+                  placeholder=""
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
                   required
                 />
@@ -189,7 +162,7 @@ export const Login: React.FC = () => {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder=""
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-none"
                   required
                 />
@@ -211,36 +184,6 @@ export const Login: React.FC = () => {
               )}
             </Button>
           </form>
-
-          <div className="relative flex items-center justify-center">
-            <div className="border-t border-slate-200 w-full" />
-            <span className="bg-white px-3 text-xs uppercase tracking-wider font-bold text-slate-400">
-              Instant Access
-            </span>
-          </div>
-
-          {/* Quick Demo & Admin Portals */}
-          <div className="space-y-2.5">
-            <button
-              type="button"
-              onClick={handleDemoStudentLogin}
-              disabled={loading}
-              className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
-            >
-              <UserCheck className="w-4 h-4 text-emerald-600" />
-              <span>Demo Student Candidate (SKM-2026-DEMO01)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleAdminPortalLogin}
-              disabled={loading}
-              className="w-full py-2.5 px-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
-            >
-              <ShieldAlert className="w-4 h-4 text-purple-600" />
-              <span>Admin Management Portal (SKM-ADMIN-01)</span>
-            </button>
-          </div>
 
           <div className="text-center pt-2 border-t border-slate-100">
             <p className="text-xs text-slate-600">

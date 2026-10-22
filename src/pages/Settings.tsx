@@ -119,16 +119,21 @@ export const Settings: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
           {/* Permanent Credential ID */}
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">SkillMatch AI Permanent ID</span>
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">SkillMatch Candidate ID</span>
             <div className="flex items-center justify-between">
               <span className="font-mono text-lg font-black text-indigo-700 tracking-wider">
-                {user.credentialId || 'SKM-2026-ACTIVE'}
+                {user.credentialId && user.credentialId.startsWith('KCE-')
+                  ? user.credentialId
+                  : `KCE-${user.graduationYear || '2026'}-${(user.rollNumber || '2024CS01').toUpperCase().replace(/\s+/g, '')}`}
               </span>
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(user.credentialId || 'SKM-2026-ACTIVE');
-                  showToast('Credential ID copied to clipboard!', 'info');
+                  const cid = user.credentialId && user.credentialId.startsWith('KCE-')
+                    ? user.credentialId
+                    : `KCE-${user.graduationYear || '2026'}-${(user.rollNumber || '2024CS01').toUpperCase().replace(/\s+/g, '')}`;
+                  navigator.clipboard.writeText(cid);
+                  showToast('Candidate ID copied to clipboard!', 'info');
                 }}
                 className="p-1 hover:bg-indigo-100 rounded text-indigo-600 transition-colors"
                 title="Copy ID"

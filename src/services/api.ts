@@ -351,6 +351,25 @@ export const ApiService = {
     return res.json();
   },
 
+  async analyzeJDOnly(data: {
+    jdText: string;
+    jobTitle?: string;
+    companyName?: string;
+  }): Promise<{ success: boolean; analysis: any }> {
+    const res = await fetch('/api/jd/analyze-only', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'JD Analysis failed' }));
+      throw new Error(err.error || 'JD Analysis failed');
+    }
+
+    return res.json();
+  },
+
   async getPastJDMatches() {
     const res = await fetch('/api/jd/matches', {
       headers: getAuthHeaders()

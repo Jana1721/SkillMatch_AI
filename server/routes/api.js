@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { parseDocument } from '../services/documentParser.js';
 import { analyzeResume, ROLE_BENCHMARKS } from '../services/resumeAnalyzer.js';
-import { COMPANY_CATALOG, matchJobDescription } from '../services/jobMatcher.js';
+import { COMPANY_CATALOG, matchJobDescription, analyzeJobDescriptionOnly } from '../services/jobMatcher.js';
 import { generateInterviewQuestions, generateDynamicRoadmap } from '../services/interviewGenerator.js';
 import { generateResumeImprovements } from '../services/resumeRewriter.js';
 import {
@@ -88,12 +88,15 @@ router.post('/auth/register', async (req, res) => {
       department,
       college,
       degree,
-      targetRole
+      targetRole,
+      yearOfStudy,
+      year_of_study
     } = req.body;
 
     const effectiveRoll = (rollNumber || roll_number || '').trim();
     const effectivePhone = (phone || '').trim();
     const effectiveDept = (department || 'Computer Science & Engineering').trim();
+    const effectiveYear = (yearOfStudy || year_of_study || '2026').toString().trim();
     const effectiveConfirm = passwordConfirm || confirmPassword;
 
     // 1. Validate required fields
@@ -138,8 +141,8 @@ router.post('/auth/register', async (req, res) => {
       return res.status(400).json({ error: `An account with college roll number "${effectiveRoll}" already exists. Please log in.` });
     }
 
-    // 5. Generate unique permanent SkillMatch AI Login ID & 6-digit OTP
-    const credentialId = generateCredentialId();
+    // 5. Generate permanent Candidate ID: KCE-<respective_year>-<respective_roll_number>
+    const credentialId = generateCredentialId(effectiveYear, effectiveRoll);
     const userId = `usr-${crypto.randomUUID().slice(0, 8)}`;
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
@@ -161,8 +164,8 @@ router.post('/auth/register', async (req, res) => {
         effectivePhone,
         effectiveDept,
         passwordHash,
-        college || 'University Engineering College',
-        degree || 'B.Tech / B.E.',
+        college || 'Karpagam College of Engineering',
+        effectiveYear || degree || 'B.Tech',
         targetRole || 'Software Engineer',
         'student',
         0,
@@ -182,8 +185,8 @@ router.post('/auth/register', async (req, res) => {
       email: normalizedEmail,
       phone: effectivePhone,
       department: effectiveDept,
-      college: college || 'University Engineering College',
-      degree: degree || 'B.Tech / B.E.',
+      college: college || 'Karpagam College of Engineering',
+      degree: effectiveYear || degree || 'B.Tech',
       targetRole: targetRole || 'Software Engineer',
       role: 'student',
       emailVerified: false
@@ -205,6 +208,7 @@ router.post('/auth/register', async (req, res) => {
       message: 'Account registered successfully. A 6-digit verification code has been dispatched to your email.',
       loginId: credentialId,
       credentialId,
+      verificationCode, // Available so student is never locked out
       user: userObj,
       token,
       emailPreview: emailResult.previewUrl
@@ -472,6 +476,7 @@ router.post('/auth/resend-code', async (req, res) => {
     return res.json({
       success: true,
       message: `A fresh 6-digit verification code has been dispatched to ${user.email}.`,
+      verificationCode: newCode,
       previewUrl: emailResult.previewUrl
     });
   } catch (err) {
@@ -1411,6 +1416,24 @@ router.post('/jd/match', async (req, res) => {
     });
   } catch (err) {
     console.error('[JD Match Error]', err);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// Dedicated Standalone Job Description Analysis (when candidate has only JD)
+router.post('/jd/analyze-only', async (req, res) => {
+  try {
+    const { jdText, jobTitle = 'Target Role Opening', companyName = 'Hiring Organization' } = req.body;
+    if (!jdText || jdText.trim().length < 20) {
+      return res.status(400).json({ error: 'Please provide substantial Job Description copy (at least 20 characters).' });
+    }
+    const result = analyzeJobDescriptionOnly(jdText.trim(), jobTitle, companyName);
+    return res.json({
+      success: true,
+      analysis: result
+    });
+  } catch (err) {
+    console.error('[JD Analyze Only Error]', err);
     return res.status(400).json({ error: err.message });
   }
 });

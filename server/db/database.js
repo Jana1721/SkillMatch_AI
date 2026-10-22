@@ -255,10 +255,15 @@ function executeJsSelect(sql, params = []) {
 function matchesWhere(row, whereClause, params) {
   const normalized = whereClause.replace(/\s+/g, ' ').trim();
 
-  // LOWER(email) = ? OR LOWER(credential_id) = ?
-  if (/LOWER\(email\)\s*=\s*\?\s*OR\s*LOWER\(credential_id\)\s*=\s*\?/i.test(normalized)) {
-    const val = (params[0] || '').toLowerCase();
-    return (row.email || '').toLowerCase() === val || (row.credential_id || '').toLowerCase() === val;
+  // LOWER(email) = ? OR LOWER(credential_id) = ? OR LOWER(roll_number) = ?
+  if (/LOWER\(email\)\s*=\s*\?\s*OR\s*LOWER\(credential_id\)\s*=\s*\?(?:\s*OR\s*LOWER\(roll_number\)\s*=\s*\?)?/i.test(normalized)) {
+    const v0 = (params[0] || '').toLowerCase();
+    const v1 = (params[1] || v0).toLowerCase();
+    const v2 = (params[2] || v0).toLowerCase();
+    const rowEmail = (row.email || '').toLowerCase();
+    const rowCred = (row.credential_id || '').toLowerCase();
+    const rowRoll = (row.roll_number || '').toLowerCase();
+    return rowEmail === v0 || rowCred === v1 || rowRoll === v2;
   }
 
   // LOWER(roll_number) = ?
@@ -368,14 +373,19 @@ export function dbAll(sql, params = []) {
   });
 }
 
-// Generate permanent unique credential ID (e.g. SKM-2026-A4F9D2)
-export function generateCredentialId() {
+// Generate permanent unique candidate credential ID formatted as KCE-<year>-<rollNumber>
+export function generateCredentialId(year = '2026', rollNumber = '') {
+  const cleanYear = String(year).trim().replace(/[^a-zA-Z0-9]/g, '') || '2026';
+  if (rollNumber && String(rollNumber).trim()) {
+    const cleanRoll = String(rollNumber).trim().toUpperCase().replace(/\s+/g, '');
+    return `KCE-${cleanYear}-${cleanRoll}`;
+  }
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 6; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return `SKM-2026-${code}`;
+  return `KCE-${cleanYear}-${code}`;
 }
 
 // Initialize tables & seed data
@@ -626,7 +636,7 @@ export async function initDatabase() {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         'user-demo',
-        'SKM-2026-DEMO01',
+        'KCE-2024-2024CS01',
         '2024CS01',
         'Demo Candidate',
         'demo@skillmatch.ai',
@@ -634,15 +644,16 @@ export async function initDatabase() {
         'Computer Science & Engineering',
         demoHash,
         'student',
-        'National Institute of Technology',
+        'Karpagam College of Engineering',
         'B.Tech Computer Science & Engineering',
         'Java Developer',
         1
       ]
     );
-    console.log('[SkillMatch DB] Seeded demo student: demo@skillmatch.ai / password123 [Roll: 2024CS01 | ID: SKM-2026-DEMO01]');
-  } else if (!existingDemo.roll_number || !existingDemo.department) {
-    await dbRun(`UPDATE users SET roll_number = '2024CS01', department = 'Computer Science & Engineering', phone = '+91 9876543210', role = 'student' WHERE id = ?`, [existingDemo.id]);
+    console.log('[SkillMatch DB] Seeded demo student: demo@skillmatch.ai / password123 [Roll: 2024CS01 | ID: KCE-2024-2024CS01]');
+  } else {
+    // Migrate existing demo to KCE-2024-2024CS01 if needed
+    await dbRun(`UPDATE users SET credential_id = 'KCE-2024-2024CS01', roll_number = '2024CS01', department = 'Computer Science & Engineering', phone = '+91 9876543210', role = 'student' WHERE id = ?`, [existingDemo.id]);
   }
 
   // Seed default administrator if not present

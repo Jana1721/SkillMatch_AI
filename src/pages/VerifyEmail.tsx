@@ -68,6 +68,8 @@ export const VerifyEmail: React.FC = () => {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  const [dispatchedCode, setDispatchedCode] = useState<string>('');
+
   const executeVerification = async (codeToVerify: string) => {
     setStatus('verifying');
     setErrorMessage('');
@@ -101,6 +103,10 @@ export const VerifyEmail: React.FC = () => {
     setErrorMessage('');
     try {
       const res = await resendVerification(user?.credentialId || emailParam);
+      if (res.verificationCode) {
+        setDispatchedCode(res.verificationCode);
+        setTokenInput(res.verificationCode);
+      }
       showToast(res.message || 'A fresh 6-digit verification code was dispatched!', 'success');
       setResendCooldown(60);
       setTimeLeft(15 * 60);
@@ -190,6 +196,20 @@ export const VerifyEmail: React.FC = () => {
                   {formatTimer(timeLeft)}
                 </span>
               </div>
+
+              {dispatchedCode && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-center">
+                  <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
+                    Dispatched Verification Code
+                  </span>
+                  <div className="font-mono text-2xl font-black text-emerald-900 tracking-widest mt-0.5">
+                    {dispatchedCode}
+                  </div>
+                  <p className="text-[11px] text-emerald-700 mt-1">
+                    Code has been auto-filled for immediate activation!
+                  </p>
+                </div>
+              )}
 
               {errorMessage && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold space-y-1">

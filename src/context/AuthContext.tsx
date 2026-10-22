@@ -8,7 +8,7 @@ interface AuthContextType {
   user: UserProfile;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  login: (identifier: string, pass: string) => Promise<boolean>;
+  login: (identifier: string, pass: string) => Promise<any>;
   loginWithDemo: () => Promise<void>;
   loginWithAdmin: () => Promise<void>;
   register: (profileData: {
@@ -22,6 +22,7 @@ interface AuthContextType {
     college?: string;
     degree?: string;
     targetRole?: string;
+    yearOfStudy?: string;
   }) => Promise<any>;
   verifyEmail: (code: string, identifier?: string) => Promise<any>;
   resendVerification: (identifier?: string) => Promise<any>;
@@ -83,7 +84,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     syncAuth();
   }, []);
 
-  const login = async (identifier: string, pass: string): Promise<boolean> => {
+  const login = async (identifier: string, pass: string): Promise<any> => {
     try {
       const res = await ApiService.login(identifier, pass);
       if (res.success && res.user) {
@@ -107,7 +108,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         StorageService.setUserProfile(loggedInUser);
         setIsAuthenticated(true);
         StorageService.setAuthenticated(true);
-        return true;
+        return loggedInUser;
       }
     } catch (err: any) {
       throw err;
@@ -134,6 +135,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     college?: string;
     degree?: string;
     targetRole?: string;
+    yearOfStudy?: string;
   }) => {
     const res = await ApiService.register(profileData);
     if (res.success && res.user) {

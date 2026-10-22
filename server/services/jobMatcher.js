@@ -211,3 +211,100 @@ export function matchJobDescription(jdText, candidateSkills, projects = []) {
     sectionsToImprove
   };
 }
+
+/**
+ * Dedicated Standalone Job Description Analysis
+ * Analyzes JD copy independently when candidate doesn't have a resume yet
+ */
+export function analyzeJobDescriptionOnly(jdText, jobTitle = 'Target Role Opening', companyName = 'Hiring Company') {
+  if (!jdText || jdText.trim().length < 20) {
+    throw new Error('Please provide substantial Job Description copy (at least 20 characters).');
+  }
+
+  const jdLower = jdText.toLowerCase();
+
+  const masterTaxonomy = [
+    'Java', 'Spring Boot', 'Hibernate', 'Python', 'Django', 'Flask', 'FastAPI', 'C++', 'C#', '.NET',
+    'JavaScript', 'TypeScript', 'React', 'Angular', 'Vue', 'Node.js', 'Express', 'Next.js',
+    'SQL', 'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Oracle', 'SQLite',
+    'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'CI/CD', 'Jenkins', 'Linux', 'Git', 'GitHub',
+    'REST APIs', 'GraphQL', 'Microservices', 'Data Structures', 'Algorithms', 'System Design', 'OOP',
+    'ServiceNow', 'ITSM', 'Flow Designer', 'GlideRecord', 'IntegrationHub', 'Service Portal',
+    'Power BI', 'Tableau', 'Excel', 'Pandas', 'NumPy', 'Machine Learning', 'TensorFlow', 'PyTorch',
+    'Agile', 'Scrum', 'Jira', 'Unit Testing', 'JUnit', 'Selenium', 'Cybersecurity', 'Kafka', 'GraphQL'
+  ];
+
+  const requiredSkills = masterTaxonomy.filter(skill => {
+    const escaped = skill.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const regex = new RegExp(`(?:^|[^a-zA-Z0-9#+])${escaped}(?:$|[^a-zA-Z0-9#+])`, 'i');
+    return regex.test(jdText);
+  });
+
+  // Soft skills detection
+  const softSkillsTaxonomy = [
+    'Communication', 'Problem-Solving', 'Teamwork', 'Agile / Scrum',
+    'Analytical Thinking', 'Critical Thinking', 'Adaptability', 'Time Management', 'Self-Motivated'
+  ];
+  const detectedSoftSkills = softSkillsTaxonomy.filter(s => {
+    const escaped = s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    return new RegExp(`(?:^|[^a-zA-Z0-9])${escaped}(?:$|[^a-zA-Z0-9])`, 'i').test(jdText);
+  });
+
+  // Extract candidate responsibilities lines
+  const lines = jdText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const responsibilities = [];
+  const requirements = [];
+
+  for (const line of lines) {
+    const clean = line.replace(/^[-*•\d.]+\s*/, '').trim();
+    if (clean.length > 20) {
+      if (/^(design|develop|build|implement|maintain|collaborate|test|deploy|lead|manage|optimize|create|write)/i.test(clean)) {
+        responsibilities.push(clean);
+      } else if (/^(experience|knowledge|proficiency|degree|b\.?tech|b\.?e|strong|familiarity|understanding)/i.test(clean)) {
+        requirements.push(clean);
+      }
+    }
+  }
+
+  // Experience level inference
+  let experienceLevel = 'Entry-Level / Fresher (0–2 Years)';
+  if (/(\d+)[-+]?\s*(?:to\s*\d+)?\s*years?/i.test(jdText)) {
+    const match = jdText.match(/(\d+)[-+]?\s*(?:to\s*\d+)?\s*years?/i);
+    const yrs = parseInt(match[1], 10);
+    if (yrs >= 5) experienceLevel = `Senior Level (${yrs}+ Years Experience)`;
+    else if (yrs >= 3) experienceLevel = `Mid-Senior Level (${yrs}+ Years Experience)`;
+    else experienceLevel = `Junior / Associate (${yrs} Years Experience)`;
+  }
+
+  // Interview preparation topics based on extracted skills
+  const preparationTopics = requiredSkills.slice(0, 6).map(skill => ({
+    topic: skill,
+    focusArea: `Core architectural fundamentals, common interview coding patterns, and real-world project deployment using ${skill}.`
+  }));
+
+  // Recommended candidate profile
+  const recommendedProfile = {
+    idealRole: jobTitle || 'Software Engineer',
+    targetCompany: companyName || 'Target Organization',
+    experienceLevel,
+    coreStack: requiredSkills.slice(0, 5),
+    recommendedProjects: [
+      `Full-stack production project demonstrating ${requiredSkills.slice(0, 3).join(' + ') || 'REST APIs and relational database schema'}`,
+      `CI/CD pipeline with automated testing, Docker containerization, and cloud deployment`
+    ]
+  };
+
+  return {
+    jobTitle,
+    companyName,
+    contentLength: jdText.length,
+    experienceLevel,
+    requiredSkills: requiredSkills.length > 0 ? requiredSkills : ['Problem Solving', 'Data Structures', 'REST APIs', 'SQL'],
+    softSkills: detectedSoftSkills.length > 0 ? detectedSoftSkills : ['Analytical Thinking', 'Team Collaboration', 'Problem Solving'],
+    keyResponsibilities: responsibilities.slice(0, 8),
+    keyRequirements: requirements.slice(0, 8),
+    preparationTopics,
+    recommendedProfile
+  };
+}
+
