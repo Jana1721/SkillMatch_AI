@@ -105,26 +105,37 @@ export const Dashboard: React.FC = () => {
       {/* Top Banner / Credential Header */}
       <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-950 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 uppercase tracking-wider">
               Candidate Readiness Hub
             </span>
+            {/* Email Status Badge */}
             {safeUser.emailVerified ? (
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Verified Account
+                <CheckCircle2 className="w-3 h-3" /> Email Verified
               </span>
             ) : (
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" /> Unverified Email
               </span>
             )}
+            {/* College Identity Status Badge */}
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 ${
+              safeUser.collegeIdentityStatus === 'Verified'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
+                : safeUser.collegeIdentityStatus === 'Rejected'
+                ? 'bg-rose-500/20 text-rose-300 border-rose-400/30'
+                : 'bg-amber-500/20 text-amber-300 border-amber-400/30'
+            }`}>
+              <Target className="w-3 h-3" /> College Identity: {safeUser.collegeIdentityStatus || 'Pending Verification'}
+            </span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
             Welcome back, {safeUser.name}!
           </h1>
           <p className="text-xs sm:text-sm text-indigo-200">
-            Target Role: <strong className="text-white">{safeUser.targetRole || 'Java Developer'}</strong> &bull; {safeUser.college || 'Engineering College'}
+            Target Role: <strong className="text-white">{safeUser.targetRole || 'Java Developer'}</strong> &bull; {safeUser.college || 'Engineering College'} &bull; Dept: {safeUser.department || 'Computer Science & Engineering'}
           </p>
         </div>
 
@@ -157,6 +168,30 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* College Identity Rejection Alert Banner */}
+      {safeUser.collegeIdentityStatus === 'Rejected' && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-rose-950">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-rose-100 rounded-xl text-rose-700 shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-rose-900">College Identity Verification Rejected</p>
+              <p className="text-rose-800 mt-0.5">
+                {safeUser.collegeRejectedReason || 'Your submitted college roll number was not validated against authorized records.'}
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={() => navigate('/profile')}
+            variant="outline"
+            className="text-xs font-bold border-rose-300 text-rose-800 hover:bg-rose-100 self-start sm:self-auto shrink-0"
+          >
+            Correct Details in Profile
+          </Button>
+        </div>
+      )}
+
       {/* Unverified Email Warning Banner */}
       {!safeUser.emailVerified && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-amber-900">
@@ -165,8 +200,8 @@ export const Dashboard: React.FC = () => {
               <MailCheck className="w-5 h-5" />
             </div>
             <div>
-              <p className="font-bold">Your personal email address ({safeUser.email}) is not yet verified.</p>
-              <p className="text-amber-700">Verify your email to ensure official interview evaluation reports are delivered to your inbox.</p>
+              <p className="font-bold">Your student email address ({safeUser.email}) is not yet verified.</p>
+              <p className="text-amber-700">Enter the 6-digit verification code sent to your Gmail to unlock full platform features.</p>
             </div>
           </div>
           <Button

@@ -46,13 +46,22 @@ export const Register: React.FC = () => {
     credentialId: string;
     email: string;
     rollNumber: string;
-    verificationCode?: string;
-    emailPreview?: string;
   } | null>(null);
 
   const [verificationCode, setVerificationCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+
+  React.useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setInterval(() => {
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [resendCooldown]);
 
   const departmentsList = [
     'Computer Science & Engineering',
@@ -85,6 +94,9 @@ export const Register: React.FC = () => {
     if (!department) newErrors.department = 'Department is required.';
     if (!college.trim()) newErrors.college = 'College name is required.';
     if (!password || password.length < 6) newErrors.password = 'Password must be at least 6 characters.';
+    if (rollNumber.trim().toLowerCase() === password.trim().toLowerCase()) {
+      newErrors.password = 'College roll number cannot be used as your account password.';
+    }
     if (password !== passwordConfirm) newErrors.passwordConfirm = 'Passwords do not match.';
 
     if (Object.keys(newErrors).length > 0) {
@@ -114,13 +126,10 @@ export const Register: React.FC = () => {
         loginId: generatedId,
         credentialId: generatedId,
         email: email.trim().toLowerCase(),
-        rollNumber: rollNumber.trim(),
-        verificationCode: res.verificationCode,
-        emailPreview: res.emailPreview
+        rollNumber: rollNumber.trim()
       });
-      if (res.verificationCode) {
-        setVerificationCode(res.verificationCode);
-      }
+      setVerificationCode(''); // Empty by default: user must enter code from their email
+      setResendCooldown(60);
       showToast(`Account created! Your unique Login ID is ${generatedId}`, 'success');
     } catch (err: any) {
       setErrors({ form: err.message || 'Registration failed. Please try again.' });
@@ -158,6 +167,20 @@ export const Register: React.FC = () => {
     }
   };
 
+  const handleResendCode = async () => {
+    if (resendCooldown > 0 || !successData?.email) return;
+    setIsResending(true);
+    try {
+      const res = await ApiService.resendVerification(successData.loginId, successData.email);
+      showToast(res.message || 'A fresh verification code was dispatched to your Gmail!', 'success');
+      setResendCooldown(60);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to resend code', 'error');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const copyLoginId = () => {
     if (successData?.loginId) {
       navigator.clipboard.writeText(successData.loginId);
@@ -191,7 +214,7 @@ export const Register: React.FC = () => {
               </div>
               <h2 className="text-2xl font-bold text-slate-900">Registration Successful!</h2>
               <p className="text-slate-600 text-sm max-w-md mx-auto">
-                Your student account has been created. A 6-digit OTP verification code has been dispatched to{' '}
+                Your student account has been created. A 6-digit OTP verification code has been automated and dispatched to{' '}
                 <strong className="text-slate-900">{successData.email}</strong>.
               </p>
 
@@ -213,39 +236,20 @@ export const Register: React.FC = () => {
                   </button>
                 </div>
                 <p className="text-xs text-emerald-700 mt-2">
-                  Keep this Login ID safe. You can log in using either this Login ID or your email address.
+                  Keep this Login ID safe. You can log in using either this Login ID, Roll Number, or your email address.
                 </p>
               </div>
 
-              {/* OTP Code Display Banner */}
-              {successData.verificationCode && (
-                <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 my-3 text-center">
-                  <span className="text-[11px] uppercase font-bold text-amber-800 tracking-wider">
-                    Official Email Verification OTP Code
-                  </span>
-                  <div className="font-mono text-2xl font-black text-amber-900 tracking-[0.25em] mt-1">
-                    {successData.verificationCode}
-                  </div>
-                  <p className="text-xs text-amber-700 mt-1">
-                    Dispatched to your student Gmail (<strong className="text-amber-900">{successData.email}</strong>). Enter code below to activate.
-                  </p>
+              {/* Email Dispatch Notice */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 my-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-indigo-700 font-bold text-xs uppercase tracking-wider mb-1">
+                  <Mail className="w-4 h-4" />
+                  <span>Verification Code Dispatched to Gmail</span>
                 </div>
-              )}
-
-              {/* In-app preview for dev */}
-              {successData.emailPreview && (
-                <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200 flex items-center justify-center gap-1.5">
-                  <span>Development Mailer Preview:</span>
-                  <a
-                    href={successData.emailPreview}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-indigo-600 font-semibold hover:underline flex items-center gap-1"
-                  >
-                    View Dispatched Email <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
+                <p className="text-xs text-slate-600 max-w-sm mx-auto">
+                  A real 6-digit verification code has been sent to <strong className="text-slate-900">{successData.email}</strong>. Check your Gmail inbox (and spam folder) and enter only the code below to activate.
+                </p>
+              </div>
 
               {/* OTP Input Form */}
               <form onSubmit={handleVerifyOtp} className="pt-4 border-t border-slate-100 space-y-4">
@@ -260,6 +264,7 @@ export const Register: React.FC = () => {
                     onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
                     placeholder=""
                     className="w-full text-center text-2xl tracking-[0.5em] font-mono font-bold py-3 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 outline-none"
+                    autoFocus
                   />
                 </div>
 
@@ -283,6 +288,26 @@ export const Register: React.FC = () => {
                   >
                     Go to Verification Screen
                   </Button>
+                </div>
+
+                {/* Resend Code Option with Cooldown */}
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={handleResendCode}
+                    disabled={resendCooldown > 0 || isResending}
+                    className={`text-xs font-semibold ${
+                      resendCooldown > 0
+                        ? 'text-slate-400 cursor-not-allowed'
+                        : 'text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer'
+                    }`}
+                  >
+                    {isResending
+                      ? 'Dispatching fresh code...'
+                      : resendCooldown > 0
+                      ? `Resend code in ${resendCooldown}s`
+                      : 'Did not receive code? Resend Code'}
+                  </button>
                 </div>
               </form>
             </div>

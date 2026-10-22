@@ -11,6 +11,12 @@ export interface UserProfile {
   credentialId?: string;
   rollNumber?: string;
   emailVerified?: boolean;
+  emailStatus?: 'Unverified' | 'Verified';
+  collegeIdentityStatus?: 'Pending Verification' | 'Verified' | 'Rejected';
+  collegeRejectedReason?: string;
+  collegeReviewedBy?: string;
+  collegeVerifiedAt?: string;
+  collegeVerificationMethod?: string;
   name: string;
   email: string;
   phone: string;
@@ -52,6 +58,12 @@ export interface AdminCandidateSummary {
   department: string;
   college: string;
   emailVerified: boolean;
+  emailStatus?: 'Unverified' | 'Verified';
+  collegeIdentityStatus?: 'Pending Verification' | 'Verified' | 'Rejected';
+  collegeRejectedReason?: string;
+  collegeReviewedBy?: string;
+  collegeVerifiedAt?: string;
+  collegeVerificationMethod?: string;
   resumeScore: number;
   githubStatus: string;
   latestInterviewScore: number | null;

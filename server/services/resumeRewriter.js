@@ -61,6 +61,7 @@ export function generateResumeImprovements(parsedData, targetRole = 'Java Develo
     },
     skillsReorganization: structuredSkills,
     projects: improvedProjects,
+    rewrittenProjects: improvedProjects,
     formattingGuidance: [
       'Use a single-column layout without tables, graphic columns, or text boxes that confuse ATS parsers.',
       'Place Technical Skills immediately after Education for fresher resumes.',

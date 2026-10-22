@@ -26,25 +26,18 @@ export const VerifyEmail: React.FC = () => {
   const tokenParam = searchParams.get('token') || '';
   const emailParam = searchParams.get('email') || user?.email || '';
 
-  const [tokenInput, setTokenInput] = useState(tokenParam);
-  const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>(
-    tokenParam ? 'verifying' : 'idle'
-  );
+  const [tokenInput, setTokenInput] = useState('');
+  const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [collegeStatus, setCollegeStatus] = useState<string>('Pending Verification');
 
   // Cooldown countdown for resending (60 seconds)
   const [resendCooldown, setResendCooldown] = useState<number>(0);
   const [isResending, setIsResending] = useState(false);
 
-  // 15-minute expiration timer
-  const [timeLeft, setTimeLeft] = useState<number>(15 * 60);
-
-  useEffect(() => {
-    if (tokenParam) {
-      executeVerification(tokenParam);
-    }
-  }, [tokenParam]);
+  // 5-minute expiration timer
+  const [timeLeft, setTimeLeft] = useState<number>(5 * 60);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -68,14 +61,15 @@ export const VerifyEmail: React.FC = () => {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const [dispatchedCode, setDispatchedCode] = useState<string>('');
-
   const executeVerification = async (codeToVerify: string) => {
     setStatus('verifying');
     setErrorMessage('');
     try {
-      await verifyEmail(codeToVerify, user?.credentialId || emailParam);
+      const res = await verifyEmail(codeToVerify, user?.credentialId || emailParam);
       setStatus('success');
+      if (res.collegeIdentityStatus) {
+        setCollegeStatus(res.collegeIdentityStatus);
+      }
       showToast('Email verified successfully! Your account is active.', 'success');
     } catch (err: any) {
       setStatus('error');
@@ -103,13 +97,9 @@ export const VerifyEmail: React.FC = () => {
     setErrorMessage('');
     try {
       const res = await resendVerification(user?.credentialId || emailParam);
-      if (res.verificationCode) {
-        setDispatchedCode(res.verificationCode);
-        setTokenInput(res.verificationCode);
-      }
-      showToast(res.message || 'A fresh 6-digit verification code was dispatched!', 'success');
+      showToast(res.message || 'A fresh 6-digit verification code was dispatched to your Gmail!', 'success');
       setResendCooldown(60);
-      setTimeLeft(15 * 60);
+      setTimeLeft(5 * 60);
       setRemainingAttempts(5);
     } catch (err: any) {
       showToast(err.message || 'Failed to resend code', 'error');
@@ -149,10 +139,36 @@ export const VerifyEmail: React.FC = () => {
               <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
-              <h2 className="text-xl font-extrabold text-slate-900">Account Fully Activated!</h2>
+              <h2 className="text-xl font-extrabold text-slate-900">Email Address Verified!</h2>
               <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                Your email <strong className="text-slate-900">{emailParam}</strong> is verified. AI Voice Interviews, Resume ATS Scoring, and GitHub Project Verification are now fully unlocked.
+                Your email <strong className="text-slate-900">{emailParam}</strong> has been successfully verified.
               </p>
+
+              {/* Status Badges */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2 text-left">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-600">Email Status:</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                    Verified
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-600">College Identity Status:</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    collegeStatus === 'Verified'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {collegeStatus}
+                  </span>
+                </div>
+              </div>
+
+              {collegeStatus !== 'Verified' && (
+                <p className="text-[11px] text-slate-500 italic">
+                  Note: College identity is pending administrative review. You can still access profile and candidate features.
+                </p>
+              )}
 
               {user?.credentialId && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
@@ -181,8 +197,8 @@ export const VerifyEmail: React.FC = () => {
                 </div>
                 <h3 className="text-base font-bold text-slate-900">Enter Verification Code</h3>
                 <p className="text-xs text-slate-500">
-                  We sent a 6-digit OTP code to{' '}
-                  <strong className="text-slate-700">{emailParam || 'your registered student email'}</strong>.
+                  Enter the 6-digit verification code automated and dispatched to{' '}
+                  <strong className="text-slate-700">{emailParam || 'your student Gmail inbox'}</strong>.
                 </p>
               </div>
 
@@ -192,24 +208,10 @@ export const VerifyEmail: React.FC = () => {
                   <Clock className="w-3.5 h-3.5 text-indigo-600" />
                   Code Expires In:
                 </span>
-                <span className={`font-mono font-bold ${timeLeft < 180 ? 'text-rose-600 animate-pulse' : 'text-slate-900'}`}>
+                <span className={`font-mono font-bold ${timeLeft < 60 ? 'text-rose-600 animate-pulse' : 'text-slate-900'}`}>
                   {formatTimer(timeLeft)}
                 </span>
               </div>
-
-              {dispatchedCode && (
-                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-center">
-                  <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-                    Dispatched Verification Code
-                  </span>
-                  <div className="font-mono text-2xl font-black text-emerald-900 tracking-widest mt-0.5">
-                    {dispatchedCode}
-                  </div>
-                  <p className="text-[11px] text-emerald-700 mt-1">
-                    Code has been auto-filled for immediate activation!
-                  </p>
-                </div>
-              )}
 
               {errorMessage && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold space-y-1">

@@ -38,7 +38,13 @@ export async function authenticateUser(req, res, next) {
           college: user.college,
           degree: user.degree,
           targetRole: user.target_role,
-          emailVerified: Boolean(user.email_verified)
+          emailVerified: Boolean(user.email_verified),
+          emailStatus: user.email_status || (user.email_verified ? 'Verified' : 'Unverified'),
+          collegeIdentityStatus: user.college_identity_status || 'Pending Verification',
+          collegeRejectedReason: user.college_rejected_reason || null,
+          collegeReviewedBy: user.college_reviewed_by || null,
+          collegeVerifiedAt: user.college_verified_at || null,
+          collegeVerificationMethod: user.college_verification_method || null
         };
         return next();
       }
@@ -62,7 +68,13 @@ export async function authenticateUser(req, res, next) {
       college: demoUser.college,
       degree: demoUser.degree,
       targetRole: demoUser.target_role,
-      emailVerified: Boolean(demoUser.email_verified)
+      emailVerified: Boolean(demoUser.email_verified),
+      emailStatus: demoUser.email_status || 'Verified',
+      collegeIdentityStatus: demoUser.college_identity_status || 'Verified',
+      collegeRejectedReason: demoUser.college_rejected_reason || null,
+      collegeReviewedBy: demoUser.college_reviewed_by || null,
+      collegeVerifiedAt: demoUser.college_verified_at || null,
+      collegeVerificationMethod: demoUser.college_verification_method || 'official_records'
     };
   } else {
     req.user = {
@@ -73,7 +85,9 @@ export async function authenticateUser(req, res, next) {
       email: 'guest@skillmatch.ai',
       role: 'student',
       targetRole: 'Java Developer',
-      emailVerified: false
+      emailVerified: false,
+      emailStatus: 'Unverified',
+      collegeIdentityStatus: 'Pending Verification'
     };
   }
 

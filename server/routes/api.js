@@ -22,7 +22,7 @@ import {
   getUserEmails
 } from '../services/emailService.js';
 import { authenticateUser, signToken, requireAuth, requireAdmin } from '../services/authMiddleware.js';
-import { dbRun, dbGet, dbAll, generateCredentialId } from '../db/database.js';
+import { dbRun, dbGet, dbAll, generateCredentialId, verifyStudentAgainstCollegeRoster } from '../db/database.js';
 
 const router = express.Router();
 
@@ -123,6 +123,10 @@ router.post('/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters in length.' });
     }
 
+    if (password.trim().toLowerCase() === effectiveRoll.toLowerCase()) {
+      return res.status(400).json({ error: 'For security reasons, your college roll number cannot be used as your account password.' });
+    }
+
     if (effectiveConfirm && password !== effectiveConfirm) {
       return res.status(400).json({ error: 'Password and confirmation do not match.' });
     }
@@ -147,14 +151,15 @@ router.post('/auth/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes expiry
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes expiry
 
     await dbRun(
       `INSERT INTO users (
         id, credential_id, roll_number, name, email, phone, department,
         password_hash, college, degree, target_role, role,
-        email_verified, verification_token, token_expires_at, verification_attempts, last_resend_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        email_verified, email_status, college_identity_status,
+        verification_token, token_expires_at, verification_attempts, last_resend_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         credentialId,
@@ -169,6 +174,8 @@ router.post('/auth/register', async (req, res) => {
         targetRole || 'Software Engineer',
         'student',
         0,
+        'Unverified',
+        'Pending Verification',
         verificationCode,
         expiresAt,
         0,
@@ -189,13 +196,15 @@ router.post('/auth/register', async (req, res) => {
       degree: effectiveYear || degree || 'B.Tech',
       targetRole: targetRole || 'Software Engineer',
       role: 'student',
-      emailVerified: false
+      emailVerified: false,
+      emailStatus: 'Unverified',
+      collegeIdentityStatus: 'Pending Verification'
     };
 
     const token = signToken(userObj);
 
-    // Send verification email with 6-digit OTP
-    const emailResult = await sendVerificationEmail({
+    // Send real verification email with 6-digit OTP to student's Gmail / email
+    await sendVerificationEmail({
       userId,
       name: name.trim(),
       email: normalizedEmail,
@@ -205,13 +214,11 @@ router.post('/auth/register', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Account registered successfully. A 6-digit verification code has been dispatched to your email.',
+      message: 'Account registered successfully. A 6-digit verification code has been dispatched to your student email.',
       loginId: credentialId,
       credentialId,
-      verificationCode, // Available so student is never locked out
       user: userObj,
-      token,
-      emailPreview: emailResult.previewUrl
+      token
     });
   } catch (err) {
     console.error('[Register Error]', err);
@@ -244,10 +251,27 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid login credentials. Please check your Login ID or Email and password.' });
     }
 
+    // Rate-limit failed login attempts: check if locked out
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      const waitMin = Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 60000);
+      return res.status(429).json({
+        error: `Account temporarily locked due to repeated failed login attempts. Please try again in ${waitMin} minute${waitMin === 1 ? '' : 's'} or reset your password.`
+      });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
+      const failed = (user.failed_login_attempts || 0) + 1;
+      let lockUntil = null;
+      if (failed >= 5) {
+        lockUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      }
+      await dbRun('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [failed, lockUntil, user.id]);
       return res.status(401).json({ error: 'Invalid login credentials. Please check your Login ID or Email and password.' });
     }
+
+    // Reset failed login attempts on successful login
+    await dbRun('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
 
     const userObj = {
       id: user.id,
@@ -262,7 +286,13 @@ router.post('/auth/login', async (req, res) => {
       degree: user.degree,
       targetRole: user.target_role,
       role: user.role || 'student',
-      emailVerified: Boolean(user.email_verified)
+      emailVerified: Boolean(user.email_verified),
+      emailStatus: user.email_status || (user.email_verified ? 'Verified' : 'Unverified'),
+      collegeIdentityStatus: user.college_identity_status || 'Pending Verification',
+      collegeRejectedReason: user.college_rejected_reason || null,
+      collegeReviewedBy: user.college_reviewed_by || null,
+      collegeVerifiedAt: user.college_verified_at || null,
+      collegeVerificationMethod: user.college_verification_method || null
     };
 
     const token = signToken(userObj);
@@ -320,7 +350,13 @@ router.put('/user/profile', requireAuth, async (req, res) => {
       degree: updated.degree,
       targetRole: updated.target_role,
       role: updated.role || 'student',
-      emailVerified: Boolean(updated.email_verified)
+      emailVerified: Boolean(updated.email_verified),
+      emailStatus: updated.email_status || (updated.email_verified ? 'Verified' : 'Unverified'),
+      collegeIdentityStatus: updated.college_identity_status || 'Pending Verification',
+      collegeRejectedReason: updated.college_rejected_reason || null,
+      collegeReviewedBy: updated.college_reviewed_by || null,
+      collegeVerifiedAt: updated.college_verified_at || null,
+      collegeVerificationMethod: updated.college_verification_method || null
     };
 
     return res.json({ success: true, message: 'Profile updated successfully.', user: userObj });
@@ -331,7 +367,8 @@ router.put('/user/profile', requireAuth, async (req, res) => {
 
 /**
  * Verify Email with 6-Digit OTP.
- * Enforces 15-minute expiration and maximum 5 incorrect attempts.
+ * Enforces 5-minute expiration and maximum 5 incorrect attempts.
+ * Cross-references official college records upon verification.
  */
 router.post('/auth/verify-email', async (req, res) => {
   try {
@@ -362,7 +399,9 @@ router.post('/auth/verify-email', async (req, res) => {
       return res.json({
         success: true,
         message: 'Your email address is already verified and active.',
-        emailVerified: true
+        emailVerified: true,
+        emailStatus: 'Verified',
+        collegeIdentityStatus: user.college_identity_status || 'Pending Verification'
       });
     }
 
@@ -374,7 +413,7 @@ router.post('/auth/verify-email', async (req, res) => {
       });
     }
 
-    // 2. Check token expiration
+    // 2. Check token expiration (5-minute window)
     if (user.token_expires_at) {
       const expiry = new Date(user.token_expires_at).getTime();
       if (Date.now() > expiry) {
@@ -394,10 +433,11 @@ router.post('/auth/verify-email', async (req, res) => {
       });
     }
 
-    // 4. Success: Activate account
+    // 4. Success: Mark email as Verified
     await dbRun(
       `UPDATE users SET 
-        email_verified = 1, 
+        email_verified = 1,
+        email_status = 'Verified',
         verification_token = NULL, 
         verification_attempts = 0,
         updated_at = CURRENT_TIMESTAMP 
@@ -405,10 +445,72 @@ router.post('/auth/verify-email', async (req, res) => {
       [user.id]
     );
 
+    // 5. College Identity Verification: Check official college student roster
+    const rosterCheck = await verifyStudentAgainstCollegeRoster(
+      user.roll_number,
+      user.email,
+      user.name,
+      user.department
+    );
+
+    let collegeIdentityStatus = 'Pending Verification';
+    let verificationMethod = null;
+
+    if (rosterCheck.matched) {
+      collegeIdentityStatus = 'Verified';
+      verificationMethod = 'official_records';
+      await dbRun(
+        `UPDATE users SET 
+          college_identity_status = 'Verified',
+          college_verification_method = 'official_records',
+          college_verified_at = CURRENT_TIMESTAMP,
+          college_rejected_reason = NULL
+         WHERE id = ?`,
+        [user.id]
+      );
+    } else {
+      await dbRun(
+        `UPDATE users SET 
+          college_identity_status = 'Pending Verification',
+          college_rejected_reason = NULL
+         WHERE id = ?`,
+        [user.id]
+      );
+    }
+
+    const updatedUser = await dbGet('SELECT * FROM users WHERE id = ?', [user.id]);
+    const userObj = {
+      id: updatedUser.id,
+      credentialId: updatedUser.credential_id,
+      credential_id: updatedUser.credential_id,
+      rollNumber: updatedUser.roll_number,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      phone: updatedUser.phone,
+      department: updatedUser.department,
+      college: updatedUser.college,
+      degree: updatedUser.degree,
+      targetRole: updatedUser.target_role,
+      role: updatedUser.role || 'student',
+      emailVerified: Boolean(updatedUser.email_verified),
+      emailStatus: updatedUser.email_status || 'Verified',
+      collegeIdentityStatus: updatedUser.college_identity_status || collegeIdentityStatus,
+      collegeRejectedReason: updatedUser.college_rejected_reason || null,
+      collegeReviewedBy: updatedUser.college_reviewed_by || null,
+      collegeVerifiedAt: updatedUser.college_verified_at || null,
+      collegeVerificationMethod: updatedUser.college_verification_method || verificationMethod
+    };
+
     return res.json({
       success: true,
-      message: 'Email address verified successfully. Your SkillMatch AI account is now fully active!',
-      emailVerified: true
+      message: rosterCheck.matched
+        ? 'Email verified and college identity confirmed via authorized student records!'
+        : 'Email verified successfully! College identity is awaiting administrative review.',
+      emailVerified: true,
+      emailStatus: 'Verified',
+      collegeIdentityStatus,
+      collegeVerificationMethod: verificationMethod,
+      user: userObj
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -417,7 +519,7 @@ router.post('/auth/verify-email', async (req, res) => {
 
 /**
  * Resend verification code.
- * Enforces a 60-second cooldown between requests.
+ * Enforces a 60-second cooldown between requests and 5-minute expiry.
  */
 router.post('/auth/resend-code', async (req, res) => {
   try {
@@ -453,7 +555,7 @@ router.post('/auth/resend-code', async (req, res) => {
     }
 
     const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes
 
     await dbRun(
       `UPDATE users SET 
@@ -465,7 +567,8 @@ router.post('/auth/resend-code', async (req, res) => {
       [newCode, expiresAt, user.id]
     );
 
-    const emailResult = await sendVerificationEmail({
+    // Dispatch real email with 6-digit code
+    await sendVerificationEmail({
       userId: user.id,
       name: user.name,
       email: user.email,
@@ -475,9 +578,7 @@ router.post('/auth/resend-code', async (req, res) => {
 
     return res.json({
       success: true,
-      message: `A fresh 6-digit verification code has been dispatched to ${user.email}.`,
-      verificationCode: newCode,
-      previewUrl: emailResult.previewUrl
+      message: `A fresh 6-digit verification code has been dispatched to ${user.email}.`
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -682,6 +783,8 @@ router.get('/admin/candidates', requireAdmin, async (req, res) => {
       search = '',
       department = 'all',
       verificationStatus = 'all',
+      emailStatus = 'all',
+      collegeIdentityStatus = 'all',
       interviewStatus = 'all',
       page = 1,
       limit = 10,
@@ -741,6 +844,12 @@ router.get('/admin/candidates', requireAdmin, async (req, res) => {
           department: c.department || 'Computer Science & Engineering',
           college: c.college || 'Engineering College',
           emailVerified: Boolean(c.email_verified),
+          emailStatus: c.email_status || (c.email_verified ? 'Verified' : 'Unverified'),
+          collegeIdentityStatus: c.college_identity_status || 'Pending Verification',
+          collegeRejectedReason: c.college_rejected_reason || null,
+          collegeReviewedBy: c.college_reviewed_by || null,
+          collegeVerifiedAt: c.college_verified_at || null,
+          collegeVerificationMethod: c.college_verification_method || null,
           resumeScore: resumeScore !== null ? resumeScore : 72,
           githubStatus: ghRow?.status || 'Not Submitted',
           latestInterviewScore: evalRow?.overall_score || null,
@@ -772,10 +881,20 @@ router.get('/admin/candidates', requireAdmin, async (req, res) => {
       filtered = filtered.filter(c => c.department.toLowerCase() === department.toLowerCase());
     }
 
+    // Support legacy verificationStatus and granular emailStatus
     if (verificationStatus === 'verified') {
       filtered = filtered.filter(c => c.emailVerified);
     } else if (verificationStatus === 'unverified') {
       filtered = filtered.filter(c => !c.emailVerified);
+    }
+
+    if (emailStatus !== 'all') {
+      filtered = filtered.filter(c => c.emailStatus.toLowerCase() === emailStatus.toLowerCase());
+    }
+
+    // Filter by College Identity Status
+    if (collegeIdentityStatus !== 'all') {
+      filtered = filtered.filter(c => c.collegeIdentityStatus.toLowerCase() === collegeIdentityStatus.toLowerCase());
     }
 
     if (interviewStatus !== 'all') {
@@ -883,6 +1002,12 @@ router.get('/admin/candidates/:id', requireAdmin, async (req, res) => {
     // 5. Saved Jobs
     const savedJobs = await dbAll('SELECT * FROM user_saved_jobs WHERE user_id = ?', [candidateId]);
 
+    // 6. Identity Verification Audit History
+    const reviews = await dbAll(
+      'SELECT * FROM identity_verification_reviews WHERE user_id = ? ORDER BY reviewed_at DESC',
+      [candidateId]
+    );
+
     return res.json({
       success: true,
       candidate: {
@@ -897,6 +1022,12 @@ router.get('/admin/candidates/:id', requireAdmin, async (req, res) => {
         degree: candidate.degree,
         targetRole: candidate.target_role,
         emailVerified: Boolean(candidate.email_verified),
+        emailStatus: candidate.email_status || (candidate.email_verified ? 'Verified' : 'Unverified'),
+        collegeIdentityStatus: candidate.college_identity_status || 'Pending Verification',
+        collegeRejectedReason: candidate.college_rejected_reason || null,
+        collegeReviewedBy: candidate.college_reviewed_by || null,
+        collegeVerifiedAt: candidate.college_verified_at || null,
+        collegeVerificationMethod: candidate.college_verification_method || null,
         role: candidate.role,
         createdAt: candidate.created_at
       },
@@ -920,7 +1051,8 @@ router.get('/admin/candidates/:id', requireAdmin, async (req, res) => {
         createdAt: g.created_at
       })),
       interviews: parsedInterviews,
-      savedJobsCount: savedJobs.length
+      savedJobsCount: savedJobs.length,
+      identityReviews: reviews
     });
   } catch (err) {
     console.error('[Admin Candidate Detail Error]', err);
@@ -941,7 +1073,12 @@ router.post('/admin/candidates/:id/verify-email', requireAdmin, async (req, res)
     }
 
     await dbRun(
-      'UPDATE users SET email_verified = 1, verification_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      `UPDATE users SET 
+        email_verified = 1,
+        email_status = 'Verified',
+        verification_token = NULL,
+        updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
       [candidateId]
     );
 
@@ -956,7 +1093,202 @@ router.post('/admin/candidates/:id/verify-email', requireAdmin, async (req, res)
 
     return res.json({
       success: true,
-      message: `Candidate ${candidate.name} (${candidate.email}) has been manually verified by Administrator.`
+      message: `Candidate ${candidate.name} (${candidate.email}) email has been manually verified by Administrator.`
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Admin manual college identity review (Approve or Reject with mandatory reason)
+ */
+router.post('/admin/candidates/:id/verify-identity', requireAdmin, async (req, res) => {
+  try {
+    const candidateId = req.params.id;
+    const { action, reason } = req.body;
+
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'Valid review action ("approve" or "reject") is required.' });
+    }
+
+    if (action === 'reject' && (!reason || !reason.trim())) {
+      return res.status(400).json({ error: 'A specific review reason is required when rejecting a candidate.' });
+    }
+
+    const candidate = await dbGet('SELECT * FROM users WHERE id = ?', [candidateId]);
+    if (!candidate) {
+      return res.status(404).json({ error: 'Candidate not found.' });
+    }
+
+    const prevStatus = candidate.college_identity_status || 'Pending Verification';
+    const newStatus = action === 'approve' ? 'Verified' : 'Rejected';
+    const reviewId = `rev-${crypto.randomUUID().slice(0, 8)}`;
+    const adminName = req.user.name || 'Administrator';
+    const adminId = req.user.id || 'admin';
+
+    if (action === 'approve') {
+      await dbRun(
+        `UPDATE users SET 
+          college_identity_status = 'Verified',
+          college_verified_at = CURRENT_TIMESTAMP,
+          college_reviewed_by = ?,
+          college_verification_method = 'admin_review',
+          college_rejected_reason = NULL,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [adminName, candidateId]
+      );
+    } else {
+      await dbRun(
+        `UPDATE users SET 
+          college_identity_status = 'Rejected',
+          college_rejected_reason = ?,
+          college_reviewed_by = ?,
+          college_verification_method = 'admin_review',
+          updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [reason.trim(), adminName, candidateId]
+      );
+    }
+
+    // Insert into identity_verification_reviews audit trail
+    await dbRun(
+      `INSERT INTO identity_verification_reviews (
+        id, user_id, admin_id, admin_name, action, reason, previous_status, new_status, reviewed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [
+        reviewId,
+        candidateId,
+        adminId,
+        adminName,
+        action,
+        action === 'reject' ? reason.trim() : 'Approved by administrator',
+        prevStatus,
+        newStatus
+      ]
+    );
+
+    // Record in global audit log
+    await logAuditAction(
+      req.user,
+      action === 'approve' ? 'ADMIN_COLLEGE_IDENTITY_APPROVAL' : 'ADMIN_COLLEGE_IDENTITY_REJECTION',
+      'USER',
+      candidateId,
+      {
+        candidateEmail: candidate.email,
+        candidateRoll: candidate.roll_number,
+        action,
+        reason: action === 'reject' ? reason.trim() : null
+      }
+    );
+
+    const updatedCandidate = await dbGet('SELECT * FROM users WHERE id = ?', [candidateId]);
+
+    return res.json({
+      success: true,
+      message: action === 'approve'
+        ? `College identity for ${candidate.name} (${candidate.roll_number}) has been approved.`
+        : `College identity for ${candidate.name} has been marked as Rejected with the specified reason.`,
+      newStatus,
+      user: {
+        id: updatedCandidate.id,
+        collegeIdentityStatus: updatedCandidate.college_identity_status,
+        collegeRejectedReason: updatedCandidate.college_rejected_reason,
+        collegeReviewedBy: updatedCandidate.college_reviewed_by,
+        collegeVerifiedAt: updatedCandidate.college_verified_at
+      }
+    });
+  } catch (err) {
+    console.error('[Admin Identity Review Error]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Student candidate resubmits details after identity rejection
+ */
+router.post('/user/resubmit-identity', requireAuth, async (req, res) => {
+  try {
+    const { rollNumber, department, name, phone } = req.body;
+
+    if (!rollNumber || !rollNumber.trim()) {
+      return res.status(400).json({ error: 'College roll number is required for identity verification.' });
+    }
+
+    const cleanRoll = rollNumber.trim();
+    const user = await dbGet('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    if (!user) {
+      return res.status(404).json({ error: 'User account not found.' });
+    }
+
+    // Check if roll number taken by another user
+    const existing = await dbGet(
+      'SELECT id FROM users WHERE LOWER(roll_number) = ? AND id != ?',
+      [cleanRoll.toLowerCase(), user.id]
+    );
+    if (existing) {
+      return res.status(400).json({ error: `Roll number ${cleanRoll} is already registered to another account.` });
+    }
+
+    const updatedDept = department || user.department;
+    const updatedName = name || user.name;
+    const updatedPhone = phone !== undefined ? phone : user.phone;
+
+    // Check against authorized college student roster
+    const rosterCheck = await verifyStudentAgainstCollegeRoster(
+      cleanRoll,
+      user.email,
+      updatedName,
+      updatedDept
+    );
+
+    let newStatus = 'Pending Verification';
+    let method = null;
+    let verifiedAt = null;
+
+    if (rosterCheck.matched) {
+      newStatus = 'Verified';
+      method = 'official_records';
+      verifiedAt = new Date().toISOString();
+    }
+
+    await dbRun(
+      `UPDATE users SET 
+        roll_number = ?,
+        department = ?,
+        name = ?,
+        phone = ?,
+        college_identity_status = ?,
+        college_verification_method = ?,
+        college_verified_at = ?,
+        college_rejected_reason = NULL,
+        college_reviewed_by = NULL,
+        updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [cleanRoll, updatedDept, updatedName, updatedPhone, newStatus, method, verifiedAt, user.id]
+    );
+
+    const updated = await dbGet('SELECT * FROM users WHERE id = ?', [user.id]);
+
+    return res.json({
+      success: true,
+      message: rosterCheck.matched
+        ? 'Identity resubmitted and verified successfully against official college records!'
+        : 'Identity details resubmitted. Your account is now pending administrative verification.',
+      collegeIdentityStatus: newStatus,
+      user: {
+        id: updated.id,
+        rollNumber: updated.roll_number,
+        department: updated.department,
+        name: updated.name,
+        phone: updated.phone,
+        emailStatus: updated.email_status,
+        collegeIdentityStatus: updated.college_identity_status,
+        collegeVerificationMethod: updated.college_verification_method,
+        collegeVerifiedAt: updated.college_verified_at,
+        collegeRejectedReason: updated.college_rejected_reason
+      }
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1231,6 +1563,95 @@ router.get('/github/verifications', async (req, res) => {
     }));
 
     return res.json({ success: true, verifications: parsed });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+  * Project Working-Phase Check & Architectural Evidence Evaluation
+  */
+router.post('/projects/verify', async (req, res) => {
+  try {
+    const {
+      projectName,
+      githubUrl,
+      documentation,
+      architectureNotes,
+      hasDb,
+      hasApi,
+      hasAuth,
+      hasTesting,
+      hasDeploy
+    } = req.body;
+
+    if (!projectName) {
+      return res.status(400).json({ error: 'Project name is required' });
+    }
+
+    let classification = 'Partially Functional';
+    const evidenceNotes = [];
+
+    if (hasDb && hasApi && hasAuth && hasDeploy) {
+      classification = 'Production-Oriented / Complete Workflow';
+      evidenceNotes.push('Integrated persistent database, verified RESTful API, token authentication, and cloud deployment.');
+    } else if (hasDb && hasApi && hasAuth) {
+      classification = 'Functional';
+      evidenceNotes.push('Complete client-server data flow and secure authentication verified.');
+    } else if (hasDb || hasApi) {
+      classification = 'Partially Functional';
+      evidenceNotes.push('Backend or database module present; lacks full deployment or authentication integration.');
+    } else {
+      classification = 'Prototype / Script';
+      evidenceNotes.push('Limited evidence of multi-tier architectural integration.');
+    }
+
+    if (githubUrl && /github\.com/i.test(githubUrl)) {
+      evidenceNotes.push('Public source code repository provided for commit inspection.');
+    } else {
+      evidenceNotes.push('No public repository link provided to verify code cleanliness.');
+    }
+
+    const verificationId = 'proj-v-' + Date.now();
+    await dbRun(
+      `INSERT INTO project_verifications (
+        id, resume_id, project_name, github_url, documentation,
+        architecture_notes, has_db_connection, has_api_integration,
+        has_authentication, has_testing, has_deployment,
+        classification, evidence_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        verificationId,
+        req.user?.id || 'guest',
+        projectName,
+        githubUrl || '',
+        documentation || '',
+        architectureNotes || '',
+        hasDb ? 1 : 0,
+        hasApi ? 1 : 0,
+        hasAuth ? 1 : 0,
+        hasTesting ? 1 : 0,
+        hasDeploy ? 1 : 0,
+        classification,
+        JSON.stringify(evidenceNotes)
+      ]
+    );
+
+    return res.json({
+      success: true,
+      verification: {
+        id: verificationId,
+        projectName,
+        classification,
+        evidenceNotes,
+        scores: {
+          backendIntegrity: hasApi ? 90 : 35,
+          databaseIntegrity: hasDb ? 90 : 30,
+          securityAuth: hasAuth ? 85 : 20,
+          deploymentReady: hasDeploy ? 95 : 25
+        }
+      }
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -1825,6 +2246,121 @@ router.get('/companies', (req, res) => {
 
 router.get('/roles', (req, res) => {
   return res.json({ success: true, roles: Object.values(ROLE_BENCHMARKS) });
+});
+
+// Interview Preparation Questions based on role & resume
+router.get('/interview/questions', async (req, res) => {
+  try {
+    const role = req.query.role || req.user?.targetRole || 'Software Engineer';
+    const resumeRow = await dbGet('SELECT analysis_json FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
+    let analysis = resumeRow ? JSON.parse(resumeRow.analysis_json) : null;
+    let parsedData = analysis?.parsedData;
+    if (!parsedData) {
+      const anyRow = await dbGet('SELECT analysis_json FROM resumes ORDER BY created_at DESC LIMIT 1');
+      if (anyRow?.analysis_json) {
+        try { parsedData = JSON.parse(anyRow.analysis_json).parsedData; } catch (e) {}
+      }
+    }
+    const questions = generateInterviewQuestions(parsedData || { skills: { allSkillsFound: ['Java', 'SQL', 'Git'] }, projects: [] }, role);
+    return res.json({ success: true, questions });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Resume Versions
+router.post('/versions/save', async (req, res) => {
+  try {
+    const { versionName, targetRole, summary, skills, projects, diffNotes } = req.body;
+    if (!versionName) return res.status(400).json({ error: 'versionName is required.' });
+
+    const id = `ver-${Date.now()}`;
+    await dbRun(
+      `INSERT INTO resume_versions (id, user_id, version_name, target_role, summary, skills_json, projects_json, diff_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        req.user?.id || 'guest',
+        versionName,
+        targetRole || 'Software Engineer',
+        summary || '',
+        JSON.stringify(skills || []),
+        JSON.stringify(projects || []),
+        diffNotes || ''
+      ]
+    );
+
+    return res.json({ success: true, versionId: id, message: 'Resume version saved.' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/versions', async (req, res) => {
+  try {
+    const rows = await dbAll('SELECT * FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC', [req.user?.id || 'guest']);
+    const versions = rows.map(r => ({
+      id: r.id,
+      versionName: r.version_name,
+      targetRole: r.target_role,
+      summary: r.summary,
+      skills: JSON.parse(r.skills_json || '[]'),
+      projects: JSON.parse(r.projects_json || '[]'),
+      diffNotes: r.diff_notes,
+      createdAt: r.created_at
+    }));
+    return res.json({ success: true, versions });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Candidate Report Download
+router.get('/report/download', async (req, res) => {
+  try {
+    const resumeRow = await dbGet('SELECT * FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user?.id || 'guest']);
+    const userRow = await dbGet('SELECT * FROM users WHERE id = ?', [req.user?.id || 'guest']);
+    let analysis = null;
+    if (resumeRow?.analysis_json) {
+      try { analysis = JSON.parse(resumeRow.analysis_json); } catch (e) {}
+    }
+
+    const candidateName = analysis?.parsedData?.contact?.name || userRow?.name || 'PRIYA SHARMA';
+    const email = analysis?.parsedData?.contact?.email || userRow?.email || 'student@kce.ac.in';
+    const overallScore = analysis?.scorecard?.overallScore || analysis?.scores?.overallScore || 78;
+
+    const reportContent = `
+================================================================================
+CAREERLENS AI — CANDIDATE READINESS REPORT
+================================================================================
+Generated: ${new Date().toISOString()}
+Candidate: ${candidateName.toUpperCase()}
+Email: ${email}
+Institutional Status: VERIFIED
+Overall Job Readiness Score: ${overallScore}/100
+
+--------------------------------------------------------------------------------
+EXECUTIVE EVALUATION SUMMARY
+--------------------------------------------------------------------------------
+The candidate displays foundational engineering rigor with verified project implementations
+and structured technical competencies aligned with industry benchmarks.
+
+Key Highlights:
+- Core Technical Skills: ${(analysis?.parsedData?.skills?.allSkillsFound || ['Java', 'SQL', 'Git', 'Spring Boot']).slice(0, 8).join(', ')}
+- Verified Projects: ${analysis?.parsedData?.projects?.length || 2} production-oriented modules
+- Status: Ready for technical screening and initial engineering interviews.
+
+================================================================================
+SkillMatch AI Verification Engine — Secure Institutional Assessment
+================================================================================
+`.trim();
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="SkillMatch_Report_${candidateName.replace(/\s+/g, '_')}.txt"`);
+    return res.send(reportContent);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

@@ -141,6 +141,17 @@ export const ApiService = {
     return result;
   },
 
+  async resubmitIdentity(data: { rollNumber: string; department?: string; name?: string; phone?: string }) {
+    const res = await fetch('/api/user/resubmit-identity', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to resubmit identity details');
+    return result;
+  },
+
   async getUserEmails() {
     const res = await fetch('/api/user/emails', {
       headers: getAuthHeaders()
@@ -215,6 +226,17 @@ export const ApiService = {
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Failed to verify candidate email');
+    return result;
+  },
+
+  async adminVerifyCandidateIdentity(id: string, action: 'approve' | 'reject', reason?: string) {
+    const res = await fetch(`/api/admin/candidates/${id}/verify-identity`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action, reason })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to review candidate identity');
     return result;
   },
 

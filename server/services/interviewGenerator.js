@@ -4,8 +4,21 @@
  * projects, and target role benchmarks without inventing false candidate claims.
  */
 
-export function generateInterviewQuestions(candidateSkills, projects, targetRole = 'Java Developer') {
-  const skillsLower = candidateSkills.map(s => s.toLowerCase());
+export function generateInterviewQuestions(candidateSkillsOrParsed, projectsArg, targetRoleArg = 'Java Developer') {
+  let candidateSkills = [];
+  let projects = [];
+  let targetRole = targetRoleArg;
+
+  if (candidateSkillsOrParsed && candidateSkillsOrParsed.skills) {
+    candidateSkills = candidateSkillsOrParsed.skills.allSkillsFound || [];
+    projects = candidateSkillsOrParsed.projects || [];
+    targetRole = typeof projectsArg === 'string' ? projectsArg : targetRoleArg;
+  } else {
+    candidateSkills = Array.isArray(candidateSkillsOrParsed) ? candidateSkillsOrParsed : [];
+    projects = Array.isArray(projectsArg) ? projectsArg : [];
+  }
+
+  const skillsLower = candidateSkills.map(s => String(s).toLowerCase());
 
   // 1. Resume & Project Specific Questions
   const projectQuestions = projects.slice(0, 3).map((proj, idx) => ({

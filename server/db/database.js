@@ -427,7 +427,15 @@ export async function initDatabase() {
     'verification_attempts INTEGER DEFAULT 0',
     'last_resend_at DATETIME',
     'reset_token TEXT',
-    'reset_expires_at DATETIME'
+    'reset_expires_at DATETIME',
+    'email_status TEXT DEFAULT "Unverified"',
+    'college_identity_status TEXT DEFAULT "Pending Verification"',
+    'college_verified_at DATETIME',
+    'college_rejected_reason TEXT',
+    'college_reviewed_by TEXT',
+    'college_verification_method TEXT',
+    'failed_login_attempts INTEGER DEFAULT 0',
+    'locked_until DATETIME'
   ];
 
   for (const colDef of userColumnsToAdd) {
@@ -437,6 +445,35 @@ export async function initDatabase() {
       // Column already exists
     }
   }
+
+  // 1b. Official College Student Roster (Authorized Institutional Database)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS college_roster (
+      id TEXT PRIMARY KEY,
+      roll_number TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL,
+      batch_year TEXT NOT NULL,
+      status TEXT DEFAULT 'active',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 1c. Identity Verification Review Decisions & Audit Trail
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS identity_verification_reviews (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      admin_id TEXT NOT NULL,
+      admin_name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason TEXT,
+      previous_status TEXT,
+      new_status TEXT,
+      reviewed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   // 2. Transactional Emails Outbox
   await dbRun(`
@@ -512,6 +549,41 @@ export async function initDatabase() {
   try {
     await dbRun(`ALTER TABLE github_verifications ADD COLUMN analysis_json TEXT`);
   } catch (e) {}
+
+  // 4b. Project Architecture & Feature Verifications
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS project_verifications (
+      id TEXT PRIMARY KEY,
+      resume_id TEXT,
+      project_name TEXT,
+      github_url TEXT,
+      documentation TEXT,
+      architecture_notes TEXT,
+      has_db_connection INTEGER,
+      has_api_integration INTEGER,
+      has_authentication INTEGER,
+      has_testing INTEGER,
+      has_deployment INTEGER,
+      classification TEXT,
+      evidence_notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 4c. Resume Versions Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS resume_versions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      version_name TEXT NOT NULL,
+      target_role TEXT,
+      summary TEXT,
+      skills_json TEXT,
+      projects_json TEXT,
+      diff_notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   // 5. Job Description Matches
   await dbRun(`
@@ -683,7 +755,104 @@ export async function initDatabase() {
     console.log('[SkillMatch DB] Seeded administrator: admin@skillmatch.ai / Admin@2026! [ID: SKM-ADMIN-01]');
   }
 
+  // Seed official college student roster records (Authorized Institutional Database)
+  const sampleRoster = [
+    {
+      id: 'roster-01',
+      roll_number: '717823P121',
+      email: '717823p121@kce.ac.in',
+      name: 'Student Candidate',
+      department: 'Computer Science & Engineering',
+      batch_year: '4th Year (2025)'
+    },
+    {
+      id: 'roster-02',
+      roll_number: '717823P140',
+      email: '717823p140@kce.ac.in',
+      name: 'KCE Candidate',
+      department: 'Computer Science & Engineering',
+      batch_year: '4th Year (2025)'
+    },
+    {
+      id: 'roster-03',
+      roll_number: '2024CS01',
+      email: 'demo@skillmatch.ai',
+      name: 'Demo Candidate',
+      department: 'Computer Science & Engineering',
+      batch_year: '4th Year (2024)'
+    },
+    {
+      id: 'roster-04',
+      roll_number: '2024CS012',
+      email: 'arun@kce.ac.in',
+      name: 'Arun Kumar',
+      department: 'Computer Science & Engineering',
+      batch_year: '3rd Year (2025)'
+    },
+    {
+      id: 'roster-05',
+      roll_number: '22CS105',
+      email: 'priya@kce.ac.in',
+      name: 'Priya S',
+      department: 'Information Technology',
+      batch_year: '2nd Year (2026)'
+    }
+  ];
+
+  for (const item of sampleRoster) {
+    const existing = await dbGet('SELECT id FROM college_roster WHERE roll_number = ?', [item.roll_number]);
+    if (!existing) {
+      await dbRun(
+        `INSERT INTO college_roster (id, roll_number, email, name, department, batch_year, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [item.id, item.roll_number, item.email, item.name, item.department, item.batch_year, 'active']
+      );
+    }
+  }
+
+  // Ensure default demo student has verified status in users
+  await dbRun(`UPDATE users SET email_status = 'Verified', college_identity_status = 'Verified', college_verification_method = 'official_records' WHERE email = 'demo@skillmatch.ai'`);
+  await dbRun(`UPDATE users SET email_status = 'Verified', college_identity_status = 'Verified' WHERE email = 'admin@skillmatch.ai'`);
+
   console.log('[SkillMatch DB] Initialized successfully. Engine:', useJsEngine ? 'Pure-JS Engine' : 'SQLite3 Binary');
 }
 
-export default { dbRun, dbGet, dbAll, initDatabase, generateCredentialId };
+/**
+ * Verify candidate against official College Student Roster
+ */
+export async function verifyStudentAgainstCollegeRoster(rollNumber, email, name, department) {
+  if (!rollNumber) return { matched: false, reason: 'Roll number is required for official roster matching.' };
+
+  const cleanRoll = rollNumber.trim().toUpperCase().replace(/\s+/g, '');
+  const record = await dbGet(
+    `SELECT * FROM college_roster WHERE UPPER(REPLACE(roll_number, ' ', '')) = ?`,
+    [cleanRoll]
+  );
+
+  if (!record) {
+    return {
+      matched: false,
+      reason: 'Roll number not found in authorized college records. Awaiting administrative review.'
+    };
+  }
+
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const recordEmail = (record.email || '').toLowerCase();
+
+  const emailMatches = cleanEmail === recordEmail || (cleanEmail.endsWith('@kce.ac.in') && recordEmail.endsWith('@kce.ac.in'));
+  const deptMatches = !department || record.department.toLowerCase().includes(department.toLowerCase()) || department.toLowerCase().includes(record.department.toLowerCase());
+
+  if (emailMatches && deptMatches) {
+    return {
+      matched: true,
+      rosterRecord: record
+    };
+  }
+
+  return {
+    matched: false,
+    reason: `Roster record found for roll number ${cleanRoll}, but registered email or department differs. Awaiting admin review.`
+  };
+}
+
+export default { dbRun, dbGet, dbAll, initDatabase, generateCredentialId, verifyStudentAgainstCollegeRoster };

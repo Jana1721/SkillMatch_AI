@@ -6,6 +6,7 @@ import { Button } from '../components/common/Button';
 import { SkillBadge } from '../components/common/SkillBadge';
 import { ALL_SKILLS } from '../data/skills';
 import { ProficiencyLevel, UserSkill } from '../types';
+import { ApiService } from '../services/api';
 import {
   User,
   School,
@@ -18,7 +19,12 @@ import {
   X,
   AlertCircle,
   Copy,
-  ShieldCheck
+  ShieldCheck,
+  ShieldAlert,
+  Clock,
+  AlertTriangle,
+  RefreshCw,
+  MailCheck
 } from 'lucide-react';
 
 export const Profile: React.FC = () => {
@@ -46,6 +52,44 @@ export const Profile: React.FC = () => {
   const [newSkillName, setNewSkillName] = useState('');
   const [newSkillProficiency, setNewSkillProficiency] = useState<ProficiencyLevel>('Intermediate');
   const [isAddingSkill, setIsAddingSkill] = useState(false);
+
+  // Identity resubmission modal state
+  const [showResubmitModal, setShowResubmitModal] = useState(false);
+  const [resubmitRoll, setResubmitRoll] = useState(user.rollNumber || '');
+  const [resubmitDept, setResubmitDept] = useState(user.department || 'Computer Science & Engineering');
+  const [isResubmitting, setIsResubmitting] = useState(false);
+
+  const emailStatus = user.emailStatus || (user.emailVerified ? 'Verified' : 'Unverified');
+  const collegeStatus = user.collegeIdentityStatus || 'Pending Verification';
+
+  const handleResubmitIdentity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resubmitRoll.trim()) {
+      showToast('College roll number is required', 'error');
+      return;
+    }
+    setIsResubmitting(true);
+    try {
+      const res = await ApiService.resubmitIdentity({
+        rollNumber: resubmitRoll.trim(),
+        department: resubmitDept.trim(),
+        name: formData.name,
+        phone: formData.phone
+      });
+      showToast(res.message || 'Details resubmitted for verification!', 'success');
+      updateProfile({
+        rollNumber: resubmitRoll.trim(),
+        department: resubmitDept.trim(),
+        collegeIdentityStatus: res.collegeIdentityStatus || 'Pending Verification',
+        collegeRejectedReason: undefined
+      });
+      setShowResubmitModal(false);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to resubmit details', 'error');
+    } finally {
+      setIsResubmitting(false);
+    }
+  };
 
   const availableInterests = [
     'Data Analytics',
@@ -133,13 +177,29 @@ export const Profile: React.FC = () => {
       <Card padding="md" className="bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white rounded-2xl shadow-xl border border-indigo-500/30">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-2">
           <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">
                 Candidate Identity
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                {user.emailVerified ? 'Verified Student' : 'Active Account'}
+              {/* Email Status Badge */}
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                emailStatus === 'Verified'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+              }`}>
+                <MailCheck className="w-3 h-3" />
+                Email: {emailStatus}
+              </span>
+              {/* College Identity Status Badge */}
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                collegeStatus === 'Verified'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : collegeStatus === 'Rejected'
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+              }`}>
+                <ShieldCheck className="w-3 h-3" />
+                College Identity: {collegeStatus}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -156,7 +216,7 @@ export const Profile: React.FC = () => {
               </button>
             </div>
             <p className="text-xs text-slate-400">
-              Standardized format: <span className="font-mono text-indigo-300 font-semibold">KCE-&lt;year&gt;-&lt;roll_number&gt;</span> &bull; Roll Number: <span className="font-mono text-slate-200">{user.rollNumber || '2024CS01'}</span>
+              SkillMatch AI Permanent Login ID &bull; Roll Number: <span className="font-mono text-slate-200">{user.rollNumber || 'N/A'}</span>
             </p>
           </div>
 
@@ -172,6 +232,127 @@ export const Profile: React.FC = () => {
           </div>
         </div>
       </Card>
+
+      {/* College Identity Status Notice Banner */}
+      {collegeStatus === 'Rejected' && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-5 shadow-sm space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-rose-900">College Identity Verification Rejected</h3>
+              <p className="text-xs text-rose-800 mt-1">
+                An administrator reviewed your college credentials and rejected the identity check.
+              </p>
+              {user.collegeRejectedReason && (
+                <div className="bg-white/80 border border-rose-200 rounded-xl p-3 mt-2 text-xs text-rose-950 font-medium">
+                  <strong>Reason provided:</strong> {user.collegeRejectedReason}
+                </div>
+              )}
+              {user.collegeReviewedBy && (
+                <p className="text-[11px] text-rose-700 mt-1.5">
+                  Reviewed by: {user.collegeReviewedBy}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setResubmitRoll(user.rollNumber || '');
+                setResubmitDept(user.department || '');
+                setShowResubmitModal(true);
+              }}
+              className="text-xs font-bold border-rose-300 text-rose-800 hover:bg-rose-100"
+            >
+              Correct Details & Resubmit for Review
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {collegeStatus === 'Pending Verification' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3 text-xs text-amber-900">
+          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <Clock className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="font-bold">College Identity Status: Pending Verification</p>
+            <p className="text-amber-700 mt-0.5">
+              Your college roll number ({user.rollNumber || 'Submitted'}) is pending verification against authorized institutional records or administrative approval.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Resubmit Modal */}
+      {showResubmitModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900">Resubmit College Identity</h3>
+              <button
+                onClick={() => setShowResubmitModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Please double-check and correct your official college roll number and department as recorded in your college portal.
+            </p>
+            <form onSubmit={handleResubmitIdentity} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  College Roll Number <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={resubmitRoll}
+                  onChange={(e) => setResubmitRoll(e.target.value)}
+                  placeholder="e.g. 717823P121"
+                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Department
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={resubmitDept}
+                  onChange={(e) => setResubmitDept(e.target.value)}
+                  placeholder="e.g. Computer Science & Engineering"
+                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 outline-none"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowResubmitModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isResubmitting || !resubmitRoll.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                >
+                  {isResubmitting ? 'Submitting...' : 'Resubmit for Review'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSaveProfile} className="space-y-8">
         {/* Section 1: Personal Information */}
