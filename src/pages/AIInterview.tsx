@@ -110,6 +110,23 @@ export const AIInterview: React.FC = () => {
   const [activeHint, setActiveHint] = useState<string | null>(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
 
+  // Verified Live Speech & Real-Time Conversation Transcript
+  const [conversationTranscript, setConversationTranscript] = useState<Array<{
+    id: string;
+    role: 'ai' | 'candidate';
+    content: string;
+    timestamp: string;
+  }>>([]);
+  const [currentAiSpokenText, setCurrentAiSpokenText] = useState<string>('');
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat transcript to keep newest dialogue in view
+  useEffect(() => {
+    if (chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [conversationTranscript, speechTranscript, interimSpeech]);
+
   // Active Candidate Resume Grounding State
   const [activeResume, setActiveResume] = useState<any>(() => {
     return StorageService.getResumeAnalysis();
@@ -374,49 +391,85 @@ export const AIInterview: React.FC = () => {
     };
   }, [isRecording]);
 
-  // 4. Natural Text-to-Speech Output
+  // 4. Natural Text-to-Speech Output (Strictly Synced with Chat Transcript)
   const speakQuestionAloud = (text: string, onFinished?: () => void) => {
+    if (!text || !text.trim()) {
+      if (onFinished) onFinished();
+      return;
+    }
+
+    const cleanText = text.trim();
+    setCurrentAiSpokenText(cleanText);
+
+    // Record in real-time conversation transcript so transcript matches spoken words exactly
+    setConversationTranscript((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === 'ai' && last.content === cleanText) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: `ai-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          role: 'ai',
+          content: cleanText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ];
+    });
+
     if (isMuted || !('speechSynthesis' in window)) {
       if (onFinished) onFinished();
       return;
     }
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const naturalVoice = voices.find(
-      (v) =>
-        v.lang.startsWith('en') &&
-        (v.name.includes('Natural') ||
-          v.name.includes('Google') ||
-          v.name.includes('Samantha') ||
-          v.name.includes('Ava') ||
-          v.name.includes('Zira') ||
-          v.name.includes('Jenny'))
-    );
-    if (naturalVoice) utterance.voice = naturalVoice;
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      const voices = window.speechSynthesis.getVoices();
+      const naturalVoice = voices.find(
+        (v) =>
+          v.lang.startsWith('en') &&
+          (v.name.includes('Natural') ||
+            v.name.includes('Google') ||
+            v.name.includes('Samantha') ||
+            v.name.includes('Ava') ||
+            v.name.includes('Zira') ||
+            v.name.includes('Jenny'))
+      );
+      if (naturalVoice) utterance.voice = naturalVoice;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
 
-    setIsTtsSpeaking(true);
-    setInterviewState('AI Speaking');
-    setStateMessage('AI Interviewer is speaking aloud...');
+      setIsTtsSpeaking(true);
+      setInterviewState('AI Speaking');
+      setStateMessage('AI Interviewer is speaking aloud...');
 
-    utterance.onend = () => {
+      utterance.onend = () => {
+        setIsTtsSpeaking(false);
+        if (onFinished) {
+          onFinished();
+        } else {
+          startRecordingAudio();
+        }
+      };
+
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis notice:', e);
+        setIsTtsSpeaking(false);
+        if (onFinished) {
+          onFinished();
+        } else {
+          startRecordingAudio();
+        }
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('Speech synthesis error:', err);
       setIsTtsSpeaking(false);
-      if (onFinished) {
-        onFinished();
-      } else {
-        startRecordingAudio();
-      }
-    };
-
-    utterance.onerror = () => {
-      setIsTtsSpeaking(false);
-      startRecordingAudio();
-    };
-
-    window.speechSynthesis.speak(utterance);
+      if (onFinished) onFinished();
+    }
   };
 
   // 5. Audio Capture Pipeline: Start Voice Recording
@@ -640,6 +693,17 @@ export const AIInterview: React.FC = () => {
 
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
+    // Record candidate answer into real-time conversation transcript
+    setConversationTranscript((prev) => [
+      ...prev,
+      {
+        id: `cand-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        role: 'candidate',
+        content: candidateAnswer,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+
     setInterviewState('Processing Answer');
     setStateMessage('AI Interviewer is transcribing your spoken answer and evaluating for relevance, correctness, depth, and clarity...');
 
@@ -737,6 +801,17 @@ export const AIInterview: React.FC = () => {
     if (!sessionId) return;
     if (isRecording) stopRecordingAudio();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+
+    // Record skipped action in conversation transcript
+    setConversationTranscript((prev) => [
+      ...prev,
+      {
+        id: `cand-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        role: 'candidate',
+        content: '[Question skipped by candidate]',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
 
     setInterviewState('Processing Answer');
     setStateMessage('Skipping question and recording feedback...');
@@ -1378,20 +1453,84 @@ export const AIInterview: React.FC = () => {
                   </div>
                 )}
 
-                {/* Read-Only Spoken Answer Live Transcript Preview */}
-                {(speechTranscript || interimSpeech) && showTranscript && interviewState !== 'Introduction' && (
-                  <div className="mt-4 max-w-xl mx-auto p-4 bg-white/5 border border-white/10 rounded-2xl text-left backdrop-blur-sm space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
-                      <span className="flex items-center gap-1.5 text-emerald-400">
-                        <Mic className="w-3.5 h-3.5 animate-pulse" />
-                        <span>Spoken Transcript Preview (Read-Only)</span>
+                {/* Real-Time Conversation Transcript (Matches AI Spoken Words & Candidate Speech) */}
+                {showTranscript && interviewState !== 'Introduction' && (conversationTranscript.length > 0 || speechTranscript || interimSpeech) && (
+                  <div className="mt-5 max-w-2xl mx-auto p-4 bg-slate-900/80 border border-slate-700/60 rounded-2xl text-left backdrop-blur-md shadow-xl space-y-3">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 pb-2 border-b border-slate-800">
+                      <span className="flex items-center gap-1.5 text-indigo-400">
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Interview Chat Transcript (Verified Live Speech)</span>
                       </span>
-                      <span className="text-[10px] text-slate-500">Transcribed from your microphone</span>
+                      <span className="text-[10px] text-slate-500">
+                        {conversationTranscript.length} messages &bull; Synchronized with voice audio
+                      </span>
                     </div>
-                    <p className="text-sm text-slate-200 font-medium leading-relaxed select-text">
-                      {speechTranscript}{' '}
-                      <span className="text-indigo-300 italic">{interimSpeech}</span>
-                    </p>
+
+                    <div className="max-h-60 overflow-y-auto space-y-2.5 pr-1 scrollbar-thin scrollbar-thumb-slate-700">
+                      {conversationTranscript.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex gap-2.5 ${msg.role === 'candidate' ? 'flex-row-reverse' : ''}`}
+                        >
+                          <div
+                            className={`w-7 h-7 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0 shadow-sm ${
+                              msg.role === 'ai'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-emerald-600 text-white'
+                            }`}
+                          >
+                            {msg.role === 'ai' ? 'AI' : 'You'}
+                          </div>
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed shadow-sm ${
+                              msg.role === 'ai'
+                                ? 'bg-slate-800/90 border border-slate-700 text-slate-200 rounded-tl-sm'
+                                : 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-100 rounded-tr-sm'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1 text-[10px] opacity-60">
+                              <span className="font-semibold">{msg.role === 'ai' ? 'AI Interviewer' : (user?.name || 'Candidate')}</span>
+                              <span>{msg.timestamp}</span>
+                            </div>
+                            <p className="whitespace-pre-line font-normal">{msg.content}</p>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Live Streaming Candidate Speech in Transcript */}
+                      {isRecording && (speechTranscript || interimSpeech) && (
+                        <div className="flex gap-2.5 flex-row-reverse animate-pulse">
+                          <div className="w-7 h-7 rounded-xl bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                            You
+                          </div>
+                          <div className="max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2 bg-rose-950/30 border border-rose-500/40 text-xs text-rose-200 leading-relaxed">
+                            <div className="flex items-center gap-1.5 mb-1 text-[10px] text-rose-400 font-semibold">
+                              <Mic className="w-3 h-3 animate-spin" />
+                              <span>Transcribing live from microphone...</span>
+                            </div>
+                            <p>
+                              {speechTranscript}{' '}
+                              <span className="italic opacity-80">{interimSpeech}</span>
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Active AI Speaking Indicator in Transcript */}
+                      {isTtsSpeaking && (
+                        <div className="flex gap-2.5 items-center text-xs text-indigo-300 italic pt-1">
+                          <div className="w-7 h-7 rounded-xl bg-indigo-600/60 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                            AI
+                          </div>
+                          <span className="flex items-center gap-1.5">
+                            <Volume2 className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+                            <span>AI Interviewer is speaking aloud...</span>
+                          </span>
+                        </div>
+                      )}
+
+                      <div ref={chatBottomRef} />
+                    </div>
                   </div>
                 )}
 
