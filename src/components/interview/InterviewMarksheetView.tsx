@@ -77,7 +77,16 @@ export const InterviewMarksheetView: React.FC<InterviewMarksheetViewProps> = ({
     totalMaxMarks: report.totalMaxMarks || ((report.totalQuestions || 5) * 10),
     overallPercentage: report.overallPercentage !== undefined ? report.overallPercentage : (report.overallScore || 75),
     performanceLevel: report.readinessTier || 'Solid Competence',
-    completionStatus: 'Completed'
+    completionStatus: (report.tabSwitchTerminated || marksheet.overallPerformance?.tabSwitchTerminated)
+      ? 'Terminated Early (Tab Switch Violation)'
+      : 'Completed',
+    interviewMode: marksheet.overallPerformance?.interviewMode || report.interviewMode || 'resume',
+    selectedDomain: marksheet.overallPerformance?.selectedDomain || report.selectedDomain || null,
+    specialization: marksheet.overallPerformance?.specialization || report.specialization || null,
+    tabSwitchCount: marksheet.overallPerformance?.tabSwitchCount !== undefined
+      ? marksheet.overallPerformance.tabSwitchCount
+      : (report.tabSwitchCount !== undefined ? report.tabSwitchCount : 0),
+    tabSwitchTerminated: !!(marksheet.overallPerformance?.tabSwitchTerminated || report.tabSwitchTerminated)
   };
 
   // Section 6.B: Question-by-Question Table Items
@@ -301,6 +310,24 @@ export const InterviewMarksheetView: React.FC<InterviewMarksheetViewProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-indigo-400" />
                 {overall.interviewDate}
               </span>
+              <span className="text-slate-500">•</span>
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                overall.interviewMode === 'manual'
+                  ? 'bg-purple-500/20 text-purple-300 border border-purple-400/30'
+                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+              }`}>
+                {overall.interviewMode === 'manual'
+                  ? `Mode 2: Manual Practice (${overall.selectedDomain || 'Domain'})`
+                  : 'Mode 1: Resume-Based Interview'}
+              </span>
+              <span className="text-slate-500">•</span>
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                overall.tabSwitchCount >= 3
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-400/30'
+                  : 'bg-slate-500/20 text-slate-300 border border-slate-400/30'
+              }`}>
+                Tab switches: {overall.tabSwitchCount}/3
+              </span>
             </p>
           </div>
 
@@ -326,6 +353,21 @@ export const InterviewMarksheetView: React.FC<InterviewMarksheetViewProps> = ({
             )}
           </div>
         </div>
+
+        {/* Proctoring Policy Termination Banner */}
+        {overall.tabSwitchTerminated && (
+          <div className="p-4 rounded-2xl bg-rose-500/20 border border-rose-400/50 text-rose-200 flex items-start gap-3 backdrop-blur-sm">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-rose-100 uppercase tracking-wide">
+                Interview Terminated Early &bull; Tab-Switch Limit Reached (3/3)
+              </h4>
+              <p className="text-xs text-rose-200 leading-relaxed">
+                This interview was paused and terminated according to the interview proctoring policy after 3 tab switches were recorded. The marksheet below evaluates questions answered prior to termination.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* SECTION 6.A: OVERALL INTERVIEW SUMMARY */}

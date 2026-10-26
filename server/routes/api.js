@@ -13,7 +13,8 @@ import {
   getQuestionHint,
   skipInterviewQuestion,
   compileFinalInterviewReport,
-  saveAndNotifyEvaluation
+  saveAndNotifyEvaluation,
+  recordTabSwitchEvent
 } from '../services/interactiveInterviewer.js';
 import {
   sendVerificationEmail,
@@ -2009,6 +2010,10 @@ router.post('/interview/interactive/start', async (req, res) => {
     }
 
     const {
+      interviewMode = 'resume',
+      domain = null,
+      specialization = null,
+      projectInfo = null,
       interviewType = 'Mixed Interview',
       targetRole = req.user?.targetRole || 'Software Engineer',
       experienceLevel = 'Fresher',
@@ -2023,6 +2028,10 @@ router.post('/interview/interactive/start', async (req, res) => {
       userId: candidateId,
       resumeId,
       resumeData,
+      interviewMode,
+      domain,
+      specialization,
+      projectInfo,
       interviewType,
       targetRole,
       experienceLevel,
@@ -2038,6 +2047,33 @@ router.post('/interview/interactive/start', async (req, res) => {
   } catch (err) {
     console.error('[Diagnostic] [Interview Start Failed]', err.message);
     return res.status(400).json({ error: err.message || 'Failed to start AI Voice Interview session.' });
+  }
+});
+
+// Tab-Switch Proctoring Endpoint (Max 3 events permitted)
+router.post('/interview/interactive/tab-switch', async (req, res) => {
+  try {
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in.' });
+    }
+
+    const { sessionId, eventNumber, maxEvents = 3 } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID is required.' });
+    }
+
+    const result = await recordTabSwitchEvent({
+      sessionId,
+      userId: candidateId,
+      eventNumber,
+      maxEvents: parseInt(maxEvents, 10) || 3
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error('[Diagnostic] [Tab Switch Error]', err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -2108,7 +2144,7 @@ router.post('/interview/interactive/skip', async (req, res) => {
 // Finish Interview Early & Compile Final Evaluation Report
 router.post('/interview/interactive/finish', async (req, res) => {
   try {
-    const { sessionId } = req.body;
+    const { sessionId, reason } = req.body;
     const sessionRow = await dbGet('SELECT * FROM interview_sessions WHERE id = ?', [sessionId]);
     if (!sessionRow) {
       return res.status(404).json({ error: 'Interview session not found.' });
@@ -2119,14 +2155,27 @@ router.post('/interview/interactive/finish', async (req, res) => {
     }
 
     const sessionState = JSON.parse(sessionRow.session_data_json);
-    sessionState.status = 'completed';
+    if (reason === 'tab_switch_limit_reached') {
+      sessionState.tabSwitchTerminated = true;
+      sessionState.status = 'terminated_tab_switch';
+    } else {
+      sessionState.status = 'completed';
+    }
     sessionState.completedAt = new Date().toISOString();
 
     const finalReport = compileFinalInterviewReport(sessionState);
     await saveAndNotifyEvaluation(sessionState, finalReport);
 
+    await dbRun(
+      `UPDATE interview_sessions SET session_data_json = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [JSON.stringify(sessionState), sessionState.status, sessionId]
+    );
+
     return res.json({
       success: true,
+      finalReport,
+      isCompleted: true
+    });
       finalReport,
       isCompleted: true
     });

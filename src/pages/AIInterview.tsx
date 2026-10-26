@@ -28,6 +28,7 @@ import {
   BookOpen,
   MessageSquare,
   ShieldCheck,
+  ShieldAlert,
   Settings,
   Layers,
   ArrowRight,
@@ -37,9 +38,35 @@ import {
   AlertTriangle,
   Radio,
   Eye,
-  EyeOff
+  EyeOff,
+  Camera,
+  CameraOff,
+  Video,
+  VideoOff
 } from 'lucide-react';
 import { Card } from '../components/common/Card';
+
+export const INTERVIEW_DOMAINS = [
+  'Software Development',
+  'Java Development',
+  'Python Development',
+  'Web Development',
+  'Frontend Development',
+  'Backend Development',
+  'Full-Stack Development',
+  'Data Analytics',
+  'Data Science and Machine Learning',
+  'Artificial Intelligence',
+  'Cloud Computing',
+  'Cybersecurity',
+  'Database Management and SQL',
+  'Software Testing and QA',
+  'ServiceNow',
+  'HR and Behavioral Interviews',
+  'Fresher and Graduate Interviews',
+  'Project-Based Interviews',
+  'General Technical Interviews'
+];
 import { Button } from '../components/common/Button';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -69,12 +96,36 @@ export const AIInterview: React.FC = () => {
   // Active Tab
   const [activeTab, setActiveTab] = useState<'interview' | 'prep' | 'history'>('interview');
 
-  // Configuration Modal & Options
+  // Configuration Modal & Options: Mode 1 (Resume-Based) & Mode 2 (Manual Domain Practice)
+  const [interviewMode, setInterviewMode] = useState<'resume' | 'manual'>('resume');
+  const [selectedDomain, setSelectedDomain] = useState<string>('Java Development');
+  const [specialization, setSpecialization] = useState<string>('');
+  const [manualProjectName, setManualProjectName] = useState<string>('');
+  const [manualProjectDesc, setManualProjectDesc] = useState<string>('');
+
   const [targetRole, setTargetRole] = useState(user?.targetRole || 'Java Developer');
-  const [interviewType, setInterviewType] = useState<'Technical' | 'HR' | 'Behavioral' | 'Mixed'>('Mixed');
-  const [experienceLevel, setExperienceLevel] = useState<'Fresher' | 'Entry-Level' | 'Experienced'>('Fresher');
-  const [difficulty, setDifficulty] = useState<'Easy' | 'Intermediate' | 'Advanced'>('Intermediate');
+  const [interviewType, setInterviewType] = useState<string>('Mixed');
+  const [experienceLevel, setExperienceLevel] = useState<string>('Fresher');
+  const [difficulty, setDifficulty] = useState<string>('Intermediate');
   const [totalQuestions, setTotalQuestions] = useState<number>(5);
+
+  // Mandatory Camera & Microphone Hardware Verification Gate
+  const [isDeviceCheckModalOpen, setIsDeviceCheckModalOpen] = useState<boolean>(false);
+  const [cameraStatus, setCameraStatus] = useState<'idle' | 'checking' | 'ready' | 'denied' | 'error'>('idle');
+  const [micHardwareStatus, setMicHardwareStatus] = useState<'idle' | 'checking' | 'ready' | 'denied' | 'error'>('idle');
+  const [deviceErrorMessage, setDeviceErrorMessage] = useState<string | null>(null);
+  const [hardwareStream, setHardwareStream] = useState<MediaStream | null>(null);
+  const [hardwareDisconnected, setHardwareDisconnected] = useState<boolean>(false);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveCamVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Tab-Switch Proctoring (Max 3 events, 10s countdown per event)
+  const [tabSwitchCount, setTabSwitchCount] = useState<number>(0);
+  const [isTabWarningOpen, setIsTabWarningOpen] = useState<boolean>(false);
+  const [tabWarningCountdown, setTabWarningCountdown] = useState<number>(10);
+  const [tabSwitchMessage, setTabSwitchMessage] = useState<string>('');
+  const lastTabSwitchTimeRef = useRef<number>(0);
+  const tabCountdownIntervalRef = useRef<any>(null);
 
   // State Machine
   const [interviewState, setInterviewState] = useState<InterviewState>('Ready');
@@ -320,8 +371,212 @@ export const AIInterview: React.FC = () => {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      stopAllMediaTracks();
     };
   }, [isRecording, isMuted]);
+
+  // Stop all media tracks (camera & microphone)
+  const stopAllMediaTracks = () => {
+    if (hardwareStream) {
+      hardwareStream.getTracks().forEach((track) => track.stop());
+      setHardwareStream(null);
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  };
+
+  // Run Mandatory Hardware Camera & Microphone Verification Check
+  const runHardwareDeviceCheck = async () => {
+    setCameraStatus('checking');
+    setMicHardwareStatus('checking');
+    setDeviceErrorMessage(null);
+
+    try {
+      if (hardwareStream) {
+        hardwareStream.getTracks().forEach((t) => t.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: true
+      });
+
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+
+      const isVideoLive = videoTracks.length > 0 && videoTracks[0].readyState === 'live';
+      const isAudioLive = audioTracks.length > 0 && audioTracks[0].readyState === 'live';
+
+      if (!isVideoLive || !isAudioLive) {
+        throw new Error('Both active camera and microphone tracks are required.');
+      }
+
+      setHardwareStream(stream);
+      setCameraStatus('ready');
+      setMicHardwareStatus('ready');
+      setHardwareDisconnected(false);
+
+      if (previewVideoRef.current) {
+        previewVideoRef.current.srcObject = stream;
+      }
+
+      videoTracks[0].onended = () => {
+        setCameraStatus('error');
+        setHardwareDisconnected(true);
+      };
+      audioTracks[0].onended = () => {
+        setMicHardwareStatus('error');
+        setHardwareDisconnected(true);
+      };
+    } catch (err: any) {
+      console.warn('[Hardware Device Check Failed]', err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraStatus('denied');
+        setMicHardwareStatus('denied');
+        setDeviceErrorMessage('Camera and microphone permissions were denied. Both devices are strictly mandatory. Please click the lock or camera icon in your browser URL bar, grant permissions, and click "Retry Device Check".');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setCameraStatus('error');
+        setMicHardwareStatus('error');
+        setDeviceErrorMessage('No camera or microphone hardware found on your computer. Please connect a working webcam and microphone.');
+      } else {
+        setCameraStatus('error');
+        setMicHardwareStatus('error');
+        setDeviceErrorMessage(err.message || 'Failed to initialize required camera and microphone devices.');
+      }
+    }
+  };
+
+  // Sync hardwareStream with preview video element
+  useEffect(() => {
+    if (previewVideoRef.current && hardwareStream) {
+      previewVideoRef.current.srcObject = hardwareStream;
+    }
+  }, [isDeviceCheckModalOpen, hardwareStream]);
+
+  // Sync hardwareStream with live cam video in active interview
+  useEffect(() => {
+    if (liveCamVideoRef.current && hardwareStream) {
+      liveCamVideoRef.current.srcObject = hardwareStream;
+    }
+  }, [interviewState, hardwareStream]);
+
+  // Tab-Switch Monitoring (visibilitychange) with 3-event limit and debouncing
+  useEffect(() => {
+    const isActiveSession =
+      sessionId &&
+      interviewState !== 'Ready' &&
+      interviewState !== 'Completed' &&
+      interviewState !== 'Error' &&
+      !isDeviceCheckModalOpen;
+
+    if (!isActiveSession) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        const now = Date.now();
+        if (now - lastTabSwitchTimeRef.current < 2000) return;
+        lastTabSwitchTimeRef.current = now;
+
+        setTabSwitchCount((prevCount) => {
+          const newCount = Math.min(3, prevCount + 1);
+
+          if (sessionId) {
+            ApiService.logTabSwitch(sessionId, newCount, 3).catch((e) =>
+              console.warn('[Tab Switch Log Error]', e)
+            );
+          }
+
+          let warningMsg = '';
+          if (newCount === 1) {
+            warningMsg =
+              'You have switched away from the interview. Please return to the interview screen. Further switches may end your interview.';
+          } else if (newCount === 2) {
+            warningMsg =
+              'Warning 2 of 3: Please remain on the interview screen. One more recorded tab switch will reach the allowed limit.';
+          } else {
+            warningMsg =
+              'Maximum tab-switch limit reached. Your interview has been paused or ended according to the interview policy.';
+          }
+
+          setTabSwitchMessage(warningMsg);
+          setIsTabWarningOpen(true);
+          setTabWarningCountdown(10);
+
+          return newCount;
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [sessionId, interviewState, isDeviceCheckModalOpen]);
+
+  // Tab-Switch Warning 10-Second Countdown Timer
+  useEffect(() => {
+    if (!isTabWarningOpen) {
+      if (tabCountdownIntervalRef.current) {
+        clearInterval(tabCountdownIntervalRef.current);
+        tabCountdownIntervalRef.current = null;
+      }
+      return;
+    }
+
+    tabCountdownIntervalRef.current = setInterval(() => {
+      setTabWarningCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(tabCountdownIntervalRef.current);
+          tabCountdownIntervalRef.current = null;
+          if (tabSwitchCount >= 3) {
+            handleEnforceTabSwitchTermination();
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (tabCountdownIntervalRef.current) {
+        clearInterval(tabCountdownIntervalRef.current);
+      }
+    };
+  }, [isTabWarningOpen, tabSwitchCount]);
+
+  // Dismiss Tab-Switch Warning (Allowed for events 1 & 2)
+  const handleDismissTabWarning = () => {
+    if (tabSwitchCount >= 3) {
+      handleEnforceTabSwitchTermination();
+    } else {
+      setIsTabWarningOpen(false);
+    }
+  };
+
+  // Enforce Policy when Maximum Tab-Switch Limit is Reached (Event 3)
+  const handleEnforceTabSwitchTermination = async () => {
+    setIsTabWarningOpen(false);
+    stopAllMediaTracks();
+    if (isRecording) stopRecordingAudio();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+
+    setInterviewState('Processing Answer');
+    setStateMessage('Compiling final evaluation report and terminating interview due to tab-switch limit...');
+
+    try {
+      const res = await ApiService.finishInteractiveInterview(sessionId!, 'tab_switch_limit_reached');
+      if (res.success) {
+        setInterviewState('Completed');
+        setFinalReport(res.finalReport);
+        showToast('Interview terminated due to exceeding tab-switch limit. Marksheet generated.', 'warning');
+      }
+    } catch (err: any) {
+      console.error('[Tab Switch Termination Error]', err);
+      setInterviewState('Completed');
+    }
+  };
 
   // 2. Fetch Interview History & Prep Questions when tab changes
   useEffect(() => {
@@ -582,67 +837,102 @@ export const AIInterview: React.FC = () => {
     await startRecordingAudio();
   };
 
-  // 6. Action: Start Interview Session Grounded in Candidate's Own Resume
-  const handleStartInterview = async () => {
-    let resumeToUse = activeResume;
-    if (!resumeToUse || !resumeToUse.parsedData) {
-      if (user?.id === 'user-demo' || user?.email === 'demo@skillmatch.ai' || user?.name === 'Demo Candidate') {
-        resumeToUse = {
-          id: 'res-demo-default',
-          fileName: 'Demo_Candidate_Resume.pdf',
-          targetRole: 'Java Developer',
-          atsScore: 78,
-          parsedData: {
-            contact: { name: 'Demo Candidate', email: 'demo@skillmatch.ai' },
-            skills: { allSkillsFound: ['Java', 'Spring Boot', 'MySQL', 'REST APIs', 'Git', 'Docker'] },
-            projects: [
-              {
-                name: 'E-Commerce Microservices Engine',
-                technologies: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
-                description: 'Developed microservices for order processing and inventory control.'
-              }
-            ],
-            education: [{ degree: 'B.Tech Computer Science & Engineering', college: 'Karpagam College of Engineering' }]
-          }
-        };
-        setActiveResume(resumeToUse);
-      } else {
-        showToast('Please upload your resume first before starting the AI Voice Interview.', 'error');
-        resumeFileInputRef.current?.click();
-        return;
+  // 6. Action: Initiate Interview (Gate through Mandatory Hardware Device Check)
+  const handleInitiateInterview = () => {
+    if (interviewMode === 'resume') {
+      let resumeToUse = activeResume;
+      if (!resumeToUse || !resumeToUse.parsedData) {
+        if (user?.id === 'user-demo' || user?.email === 'demo@skillmatch.ai' || user?.name === 'Demo Candidate') {
+          resumeToUse = {
+            id: 'res-demo-default',
+            fileName: 'Demo_Candidate_Resume.pdf',
+            targetRole: 'Java Developer',
+            atsScore: 78,
+            parsedData: {
+              contact: { name: 'Demo Candidate', email: 'demo@skillmatch.ai' },
+              skills: { allSkillsFound: ['Java', 'Spring Boot', 'MySQL', 'REST APIs', 'Git', 'Docker'] },
+              projects: [
+                {
+                  name: 'E-Commerce Microservices Engine',
+                  technologies: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
+                  description: 'Developed microservices for order processing and inventory control.'
+                }
+              ],
+              education: [{ degree: 'B.Tech Computer Science & Engineering', college: 'Karpagam College of Engineering' }]
+            }
+          };
+          setActiveResume(resumeToUse);
+        } else {
+          showToast('Please upload your resume first or switch to Manual Domain Practice.', 'error');
+          resumeFileInputRef.current?.click();
+          return;
+        }
       }
     }
 
+    // Launch Mandatory Hardware Verification Modal
+    setIsDeviceCheckModalOpen(true);
+    runHardwareDeviceCheck();
+  };
+
+  // Backward compatibility alias for retries
+  const handleStartInterview = handleInitiateInterview;
+
+  // 6b. Proceed to Interview Room once Device Checks Pass
+  const handleProceedToInterviewRoom = () => {
+    if (cameraStatus !== 'ready' || micHardwareStatus !== 'ready') {
+      showToast('Mandatory camera and microphone checks must pass before entering.', 'error');
+      return;
+    }
+    setIsDeviceCheckModalOpen(false);
+    executeStartInterviewSession();
+  };
+
+  // 6c. Execute Interactive Interview Session Initialization
+  const executeStartInterviewSession = async () => {
     setInterviewState('Connecting');
-    setStateMessage('Connecting to AI Interview Engine and configuring personalized questions from your resume...');
+    setStateMessage('Connecting to AI Interview Engine and configuring personalized questions...');
     setFinalReport(null);
     setTurns([]);
     setIsRetryTurn(false);
     setActiveAttemptNumber(1);
     setRetryNotice(null);
     setMicErrorMessage(null);
+    setTabSwitchCount(0);
+    setIsTabWarningOpen(false);
 
     try {
-      const res = await ApiService.startInteractiveInterview({
-        targetRole,
+      const payload: any = {
+        interviewMode,
+        targetRole: interviewMode === 'manual' ? (specialization || selectedDomain) : targetRole,
+        domain: interviewMode === 'manual' ? selectedDomain : undefined,
+        specialization: interviewMode === 'manual' ? specialization : undefined,
         interviewType: interviewType === 'Mixed' ? 'Mixed Interview' : `${interviewType} Interview`,
         experienceLevel,
         difficulty,
         totalQuestions,
-        resumeId: resumeToUse?.id || undefined,
-        resumeData: resumeToUse || undefined
-      });
+        projectInfo: interviewMode === 'manual' && manualProjectName ? {
+          name: manualProjectName,
+          description: manualProjectDesc
+        } : undefined
+      };
+
+      if (interviewMode === 'resume') {
+        payload.resumeId = activeResume?.id || undefined;
+        payload.resumeData = activeResume || undefined;
+      }
+
+      const res = await ApiService.startInteractiveInterview(payload);
 
       if (res.success && res.currentQuestion) {
         setSessionId(res.sessionId);
         setCurrentQuestion(res.currentQuestion);
         setQuestionNumber(1);
         setTotalSessionQuestions(res.progress?.total || totalQuestions);
-        const candidateName = user?.name || activeResume?.parsedData?.contact?.name;
+        const candidateName = user?.name || (interviewMode === 'resume' ? activeResume?.parsedData?.contact?.name : null);
         const welcomeText = res.welcomeMessage || (candidateName ? `Hi, ${candidateName}! Welcome to the AI Interview.` : 'Hi! Welcome to the AI Interview.');
         setWelcomeIntroMessage(welcomeText);
 
-        // Sequence: Display welcome message before Question 1, present Question 1, start voice answering
         setInterviewState('AI Speaking');
         setStateMessage('AI Interviewer is speaking Question 1 aloud...');
 
@@ -650,7 +940,7 @@ export const AIInterview: React.FC = () => {
           startRecordingAudio();
         });
       } else {
-        throw new Error(res.error || 'Failed to initialize personalized question.');
+        throw new Error(res.error || 'Failed to initialize interview questions.');
       }
     } catch (err: any) {
       setInterviewState('Error');
@@ -936,7 +1226,7 @@ export const AIInterview: React.FC = () => {
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Configure Your Interview Session</h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    The AI Voice Interviewer personalizes questions from your uploaded resume, covering your actual projects, tech stack, and coursework.
+                    Select your preferred interview mode. Choose personalized resume-grounded questions or practice any engineering domain manually without a resume.
                   </p>
                 </div>
 
@@ -950,184 +1240,378 @@ export const AIInterview: React.FC = () => {
                 />
 
                 {/* ============================================================= */}
-                {/* CANDIDATE RESUME GROUNDING CARD                               */}
+                {/* TWO INTERVIEW MODES SELECTION CARDS                           */}
                 {/* ============================================================= */}
-                {activeResume ? (
-                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200/50">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
-                          <FileText className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-bold text-slate-900">
-                              {activeResume.parsedData?.contact?.name || user?.name || 'Candidate Resume Connected'}
-                            </h3>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              Resume Connected
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600">
-                            {activeResume.parsedData?.education?.[0]?.degree || user?.department || 'B.Tech / Computer Science'} &bull; {activeResume.parsedData?.education?.[0]?.college || user?.college || 'College of Engineering'}
-                          </p>
-                        </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Mode 1 Card */}
+                  <div
+                    onClick={() => setInterviewMode('resume')}
+                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      interviewMode === 'resume'
+                        ? 'border-indigo-600 bg-indigo-50/40 shadow-sm shadow-indigo-100'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                        <FileText className="w-5 h-5" />
                       </div>
-
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={isUploadingResume}
-                        onClick={() => resumeFileInputRef.current?.click()}
-                        className="text-xs font-bold text-indigo-700 bg-white hover:bg-slate-50 border-slate-200 shrink-0 self-start sm:self-auto shadow-xs"
-                      >
-                        <UploadCloud className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>{isUploadingResume ? 'Analyzing...' : 'Change / Upload Resume'}</span>
-                      </Button>
-                    </div>
-
-                    {/* Detected Projects from resume */}
-                    <div className="space-y-1.5 text-xs">
-                      <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
-                        Grounded Candidate Projects ({activeResume.parsedData?.projects?.length || 0}):
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        interviewMode === 'resume' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {interviewMode === 'resume' ? 'Active Mode' : 'Select'}
                       </span>
-                      {activeResume.parsedData?.projects && activeResume.parsedData.projects.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {activeResume.parsedData.projects.map((proj: any, idx: number) => (
-                            <span key={idx} className="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 font-semibold text-slate-800 shadow-2xs flex items-center gap-1.5">
-                              <Briefcase className="w-3 h-3 text-emerald-600" />
-                              <span>{proj.name}</span>
-                              {proj.technologies && proj.technologies.length > 0 && (
-                                <span className="text-[10px] text-slate-400 font-normal">({proj.technologies.slice(0, 2).join(', ')})</span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500 italic">No specific project titles isolated in resume. Open software engineering questions will be tailored to your stated coursework.</p>
-                      )}
                     </div>
-
-                    {/* Detected Skills from resume */}
-                    {activeResume.parsedData?.skills?.allSkillsFound && activeResume.parsedData.skills.allSkillsFound.length > 0 && (
-                      <div className="space-y-1 text-xs pt-1">
-                        <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
-                          Grounded Candidate Skills ({activeResume.parsedData.skills.allSkillsFound.length}):
-                        </span>
-                        <div className="flex flex-wrap gap-1">
-                          {activeResume.parsedData.skills.allSkillsFound.slice(0, 8).map((skill: string) => (
-                            <span key={skill} className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100/70 text-emerald-900">
-                              {skill}
-                            </span>
-                          ))}
-                          {activeResume.parsedData.skills.allSkillsFound.length > 8 && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-medium text-slate-500 bg-white border border-slate-200">
-                              +{activeResume.parsedData.skills.allSkillsFound.length - 8} more
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    <p className="text-[11px] text-emerald-900 bg-white/70 p-2 rounded-lg border border-emerald-200/60 font-medium">
-                      🎯 <strong>Resume-Aware Interview:</strong> The AI will ask personalized questions based on your background, defending what you built in <strong>"{activeResume.parsedData?.projects?.[0]?.name || 'your projects'}"</strong> and verifying your technical skills. Spoken voice answers are mandatory.
+                    <h3 className="text-sm font-bold text-slate-900">Mode 1: Resume-Based Interview</h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      AI tailors personalized questions from your uploaded resume, coursework, and verified projects.
                     </p>
                   </div>
-                ) : (
-                  <div className="p-5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                        <UploadCloud className="w-4 h-4" />
+
+                  {/* Mode 2 Card */}
+                  <div
+                    onClick={() => setInterviewMode('manual')}
+                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                      interviewMode === 'manual'
+                        ? 'border-purple-600 bg-purple-50/40 shadow-sm shadow-purple-100'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs">
+                        <Layers className="w-5 h-5" />
                       </div>
-                      <div className="space-y-1">
-                        <h3 className="text-sm font-bold text-amber-950">
-                          Upload Candidate Resume for Personalized Voice Interviewing
-                        </h3>
-                        <p className="text-xs text-amber-900">
-                          Upload your resume (PDF, DOCX, or TXT) so the AI Interviewer can extract your actual projects, tech stack, and coursework to generate personalized questions.
-                        </p>
-                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        interviewMode === 'manual' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {interviewMode === 'manual' ? 'Active Mode' : 'Select'}
+                      </span>
                     </div>
-
-                    <div className="pt-1 flex items-center gap-3">
-                      <Button
-                        type="button"
-                        onClick={() => resumeFileInputRef.current?.click()}
-                        disabled={isUploadingResume}
-                        className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-2"
-                      >
-                        <UploadCloud className="w-4 h-4" />
-                        <span>{isUploadingResume ? 'Analyzing Resume...' : 'Upload Candidate Resume'}</span>
-                      </Button>
-                      <span className="text-[11px] text-slate-500">Supports PDF, DOCX, TXT (Max 10MB)</span>
-                    </div>
-
-                    {resumeUploadError && (
-                      <p className="text-xs text-rose-600 font-semibold">{resumeUploadError}</p>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Target Job Role</label>
-                    <select
-                      value={targetRole}
-                      onChange={(e) => setTargetRole(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
-                    >
-                      <option value="Java Developer">Java Developer (Spring Boot, Microservices)</option>
-                      <option value="Software Developer / SDE">Software Developer / SDE (DSA, System Design)</option>
-                      <option value="ServiceNow Developer">ServiceNow Developer (ITSM, GlideRecord)</option>
-                      <option value="Full Stack Developer">Full Stack Developer (React, Node, SQL)</option>
-                      <option value="Cloud & DevOps Engineer">Cloud & DevOps Engineer (AWS, Docker, CI/CD)</option>
-                      <option value="Data Analyst">Data Analyst (Python, SQL, Power BI)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Interview Format</label>
-                    <select
-                      value={interviewType}
-                      onChange={(e) => setInterviewType(e.target.value as any)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
-                    >
-                      <option value="Mixed">Mixed (Technical + Behavioral + Project Experience)</option>
-                      <option value="Technical">Technical Competency Deep-Dive</option>
-                      <option value="HR">HR & Cultural Fit Assessment</option>
-                      <option value="Behavioral">Behavioral (STAR Method Scenarios)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Experience Level</label>
-                    <select
-                      value={experienceLevel}
-                      onChange={(e) => setExperienceLevel(e.target.value as any)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
-                    >
-                      <option value="Fresher">Fresher / College Graduate (0 Years)</option>
-                      <option value="Entry-Level">Entry-Level Junior Engineer (1-2 Years)</option>
-                      <option value="Experienced">Experienced Mid-Level Engineer (3+ Years)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Difficulty Tier</label>
-                    <select
-                      value={difficulty}
-                      onChange={(e) => setDifficulty(e.target.value as any)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
-                    >
-                      <option value="Easy">Standard Fundamentals</option>
-                      <option value="Intermediate">Intermediate (Industry Ready Benchmark)</option>
-                      <option value="Advanced">Advanced (High Depth & Architecture)</option>
-                    </select>
+                    <h3 className="text-sm font-bold text-slate-900">Mode 2: Manual Domain Practice</h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      No resume required. Select from 19 domains and difficulty levels to practice technical questions immediately.
+                    </p>
                   </div>
                 </div>
 
+                {/* ============================================================= */}
+                {/* MODE 1: CANDIDATE RESUME GROUNDING CARD                       */}
+                {/* ============================================================= */}
+                {interviewMode === 'resume' && (
+                  <div className="space-y-4">
+                    {activeResume ? (
+                      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200/50">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-slate-900">
+                                  {activeResume.parsedData?.contact?.name || user?.name || 'Candidate Resume Connected'}
+                                </h3>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  Resume Connected
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600">
+                                {activeResume.parsedData?.education?.[0]?.degree || user?.department || 'B.Tech / Computer Science'} &bull; {activeResume.parsedData?.education?.[0]?.college || user?.college || 'College of Engineering'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={isUploadingResume}
+                            onClick={() => resumeFileInputRef.current?.click()}
+                            className="text-xs font-bold text-indigo-700 bg-white hover:bg-slate-50 border-slate-200 shrink-0 self-start sm:self-auto shadow-xs"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>{isUploadingResume ? 'Analyzing...' : 'Change / Upload Resume'}</span>
+                          </Button>
+                        </div>
+
+                        {/* Detected Projects from resume */}
+                        <div className="space-y-1.5 text-xs">
+                          <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                            Grounded Candidate Projects ({activeResume.parsedData?.projects?.length || 0}):
+                          </span>
+                          {activeResume.parsedData?.projects && activeResume.parsedData.projects.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {activeResume.parsedData.projects.map((proj: any, idx: number) => (
+                                <span key={idx} className="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 font-semibold text-slate-800 shadow-2xs flex items-center gap-1.5">
+                                  <Briefcase className="w-3 h-3 text-emerald-600" />
+                                  <span>{proj.name}</span>
+                                  {proj.technologies && proj.technologies.length > 0 && (
+                                    <span className="text-[10px] text-slate-400 font-normal">({proj.technologies.slice(0, 2).join(', ')})</span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-500 italic">No specific project titles isolated in resume. Open software engineering questions will be tailored to your stated coursework.</p>
+                          )}
+                        </div>
+
+                        {/* Detected Skills from resume */}
+                        {activeResume.parsedData?.skills?.allSkillsFound && activeResume.parsedData.skills.allSkillsFound.length > 0 && (
+                          <div className="space-y-1 text-xs pt-1">
+                            <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                              Grounded Candidate Skills ({activeResume.parsedData.skills.allSkillsFound.length}):
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {activeResume.parsedData.skills.allSkillsFound.slice(0, 8).map((skill: string) => (
+                                <span key={skill} className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100/70 text-emerald-900">
+                                  {skill}
+                                </span>
+                              ))}
+                              {activeResume.parsedData.skills.allSkillsFound.length > 8 && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-medium text-slate-500 bg-white border border-slate-200">
+                                  +{activeResume.parsedData.skills.allSkillsFound.length - 8} more
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <p className="text-[11px] text-emerald-900 bg-white/70 p-2 rounded-lg border border-emerald-200/60 font-medium">
+                          🎯 <strong>Resume-Aware Interview:</strong> The AI will ask personalized questions based on your background, defending what you built in <strong>"{activeResume.parsedData?.projects?.[0]?.name || 'your projects'}"</strong> and verifying your technical skills. Spoken voice answers are mandatory.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                            <UploadCloud className="w-4 h-4" />
+                          </div>
+                          <div className="space-y-1">
+                            <h3 className="text-sm font-bold text-amber-950">
+                              Upload Candidate Resume for Personalized Voice Interviewing
+                            </h3>
+                            <p className="text-xs text-amber-900">
+                              Upload your resume (PDF, DOCX, or TXT) so the AI Interviewer can extract your actual projects, tech stack, and coursework to generate personalized questions.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-1 flex items-center gap-3">
+                          <Button
+                            type="button"
+                            onClick={() => resumeFileInputRef.current?.click()}
+                            disabled={isUploadingResume}
+                            className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-2"
+                          >
+                            <UploadCloud className="w-4 h-4" />
+                            <span>{isUploadingResume ? 'Analyzing Resume...' : 'Upload Candidate Resume'}</span>
+                          </Button>
+                          <span className="text-[11px] text-slate-500">Supports PDF, DOCX, TXT (Max 10MB)</span>
+                        </div>
+
+                        {resumeUploadError && (
+                          <p className="text-xs text-rose-600 font-semibold">{resumeUploadError}</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Target Job Role</label>
+                        <select
+                          value={targetRole}
+                          onChange={(e) => setTargetRole(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
+                        >
+                          <option value="Java Developer">Java Developer (Spring Boot, Microservices)</option>
+                          <option value="Software Developer / SDE">Software Developer / SDE (DSA, System Design)</option>
+                          <option value="ServiceNow Developer">ServiceNow Developer (ITSM, GlideRecord)</option>
+                          <option value="Full Stack Developer">Full Stack Developer (React, Node, SQL)</option>
+                          <option value="Cloud & DevOps Engineer">Cloud & DevOps Engineer (AWS, Docker, CI/CD)</option>
+                          <option value="Data Analyst">Data Analyst (Python, SQL, Power BI)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Interview Format</label>
+                        <select
+                          value={interviewType}
+                          onChange={(e) => setInterviewType(e.target.value as any)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
+                        >
+                          <option value="Mixed">Mixed (Technical + Behavioral + Project Experience)</option>
+                          <option value="Technical">Technical Competency Deep-Dive</option>
+                          <option value="HR">HR & Cultural Fit Assessment</option>
+                          <option value="Behavioral">Behavioral (STAR Method Scenarios)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Experience Level</label>
+                        <select
+                          value={experienceLevel}
+                          onChange={(e) => setExperienceLevel(e.target.value as any)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
+                        >
+                          <option value="Fresher">Fresher / College Graduate (0 Years)</option>
+                          <option value="Beginner">Beginner / Junior Engineer (1-2 Years)</option>
+                          <option value="Intermediate">Intermediate Engineer (2-4 Years)</option>
+                          <option value="Experienced">Experienced Senior Engineer (5+ Years)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Difficulty Tier</label>
+                        <select
+                          value={difficulty}
+                          onChange={(e) => setDifficulty(e.target.value as any)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-indigo-600 focus:bg-white"
+                        >
+                          <option value="Easy">Standard Fundamentals</option>
+                          <option value="Intermediate">Intermediate (Industry Benchmark)</option>
+                          <option value="Hard">Hard / Advanced (High Depth & Edge Cases)</option>
+                          <option value="Mixed">Mixed Difficulty</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ============================================================= */}
+                {/* MODE 2: MANUAL DOMAIN PRACTICE (NO RESUME REQUIRED)           */}
+                {/* ============================================================= */}
+                {interviewMode === 'manual' && (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200/80 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-purple-700" />
+                        <h4 className="text-xs font-bold text-purple-900 uppercase tracking-wider">
+                          Resume Upload is Not Required in Manual Practice Mode
+                        </h4>
+                      </div>
+                      <p className="text-xs text-purple-800">
+                        Select your desired interview domain below. Questions will test core fundamentals, practical problem-solving, and scenarios without assuming an unprovided resume or project.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Domain Selection */}
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Interview Domain (19 Specialized Domains)
+                        </label>
+                        <select
+                          value={selectedDomain}
+                          onChange={(e) => setSelectedDomain(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                        >
+                          {INTERVIEW_DOMAINS.map((domain) => (
+                            <option key={domain} value={domain}>
+                              {domain}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Optional Specialization */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Target Role or Specialization (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Java Developer, Frontend Engineer, Data Analyst"
+                          value={specialization}
+                          onChange={(e) => setSpecialization(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                        />
+                      </div>
+
+                      {/* Interview Type */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Interview Type
+                        </label>
+                        <select
+                          value={interviewType}
+                          onChange={(e) => setInterviewType(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                        >
+                          <option value="Technical">Technical</option>
+                          <option value="HR">HR & Cultural Fit</option>
+                          <option value="Behavioral">Behavioral (STAR Method)</option>
+                          <option value="Coding">Coding & Problem Solving</option>
+                          <option value="Scenario-Based">Scenario-Based</option>
+                          <option value="Mixed">Mixed Interview</option>
+                        </select>
+                      </div>
+
+                      {/* Experience Level */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Experience Level
+                        </label>
+                        <select
+                          value={experienceLevel}
+                          onChange={(e) => setExperienceLevel(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                        >
+                          <option value="Fresher">Fresher</option>
+                          <option value="Beginner">Beginner</option>
+                          <option value="Intermediate">Intermediate</option>
+                          <option value="Experienced">Experienced</option>
+                        </select>
+                      </div>
+
+                      {/* Difficulty Level */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Difficulty Level
+                        </label>
+                        <select
+                          value={difficulty}
+                          onChange={(e) => setDifficulty(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                        >
+                          <option value="Easy">Easy</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Hard">Hard</option>
+                          <option value="Mixed">Mixed</option>
+                        </select>
+                      </div>
+
+                      {/* Optional Project Details */}
+                      <div className="sm:col-span-2 pt-1 border-t border-slate-100 space-y-2">
+                        <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Candidate Project Information (Optional)
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            placeholder="Project Name (optional)"
+                            value={manualProjectName}
+                            onChange={(e) => setManualProjectName(e.target.value)}
+                            className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Brief Description or Key Tech (optional)"
+                            value={manualProjectDesc}
+                            onChange={(e) => setManualProjectDesc(e.target.value)}
+                            className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-purple-600 focus:bg-white"
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-400 italic">
+                          If left blank, questions will focus on universal software engineering architecture, testing, and lifecycle without assuming a specific project.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Session Length Selection */}
                 <div className="pt-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Session Length</label>
                   <div className="flex gap-3">
@@ -1136,9 +1620,11 @@ export const AIInterview: React.FC = () => {
                         key={num}
                         type="button"
                         onClick={() => setTotalQuestions(num)}
-                        className={`flex-1 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+                        className={`flex-1 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                           totalQuestions === num
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-200'
+                            ? interviewMode === 'manual'
+                              ? 'bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200'
+                              : 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-200'
                             : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
@@ -1148,62 +1634,73 @@ export const AIInterview: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span>Voice-only answers &bull; Transparent marksheet evaluation</span>
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Mandatory Camera & Microphone Checks &bull; Tab-Switch Proctoring</span>
                   </div>
-                  <Button onClick={handleStartInterview} className="px-6 py-3 font-bold flex items-center gap-2 text-sm">
+                  <Button
+                    onClick={handleInitiateInterview}
+                    className={`px-6 py-3 font-bold flex items-center justify-center gap-2 text-sm text-white cursor-pointer shadow-md ${
+                      interviewMode === 'manual'
+                        ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-200'
+                        : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                    }`}
+                  >
                     <Play className="w-4 h-4 fill-white" />
-                    <span>Start Voice Interview</span>
+                    <span>
+                      {interviewMode === 'manual'
+                        ? 'Verify Devices & Start Practice'
+                        : 'Verify Devices & Start Interview'}
+                    </span>
                   </Button>
                 </div>
               </Card>
 
-              {/* Voice Interaction Readiness Card */}
-              <Card className="p-6 bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl shadow-md space-y-5">
+              {/* Mandatory Proctoring & Readiness Overview Card */}
+              <Card className="p-6 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl shadow-md space-y-5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-400">
-                    <Bot className="w-5 h-5" />
+                    <ShieldCheck className="w-5 h-5 text-indigo-400" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-sm text-white">AI Voice Interaction</h3>
-                    <p className="text-[11px] text-indigo-200">Mandatory Microphone Setup</p>
+                    <h3 className="font-bold text-sm text-white">Interview Integrity & Devices</h3>
+                    <p className="text-[11px] text-indigo-200">Mandatory Proctoring Checks</p>
                   </div>
                 </div>
 
-                <div className="space-y-3 text-xs text-slate-300">
+                <div className="space-y-3.5 text-xs text-slate-300">
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <Camera className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Voice-Only Answering:</strong> You answer every question directly using your microphone. Typed answers are disabled.
+                      <strong>Mandatory Camera Check:</strong> Live camera preview is verified before entry and kept active throughout the interview.
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <Mic className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Audio Review & Playback:</strong> Listen back to your recorded spoken answer before submitting, or re-record if needed.
+                      <strong>Spoken Voice-Only Answers:</strong> Speak directly into your microphone. Text typing is disabled for real interview simulation.
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Intelligent Clarifications:</strong> If an answer is off-topic, the AI offers one focused retry opportunity.
+                      <strong>Tab-Switch Monitoring:</strong> Maximum 3 tab switches permitted. Each event triggers a visible 10-second warning countdown.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <Award className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Official Marksheet:</strong> Generates question scores, category breakdowns, mistake analyses, and percentage results.
                     </span>
                   </div>
                 </div>
 
                 <div className="bg-white/10 rounded-xl p-3 border border-white/10 text-center">
-                  <span className="text-[11px] text-slate-300">Microphone Status</span>
+                  <span className="text-[11px] text-slate-300">Device Hardware Verification</span>
                   <div className="flex items-center justify-center gap-2 font-bold text-xs mt-1">
-                    <span className={`w-2 h-2 rounded-full ${micSupported && micPermission !== 'denied' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-                    <span className={micSupported && micPermission !== 'denied' ? 'text-emerald-400' : 'text-rose-300'}>
-                      {micPermission === 'denied'
-                        ? 'Microphone Blocked (Permission Needed)'
-                        : micSupported
-                        ? 'Microphone Ready for Voice Answers'
-                        : 'No Microphone Detected'}
-                    </span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-300">Camera & Microphone Pre-Check Gate</span>
                   </div>
                 </div>
               </Card>
@@ -1250,8 +1747,8 @@ export const AIInterview: React.FC = () => {
           {interviewState !== 'Ready' && interviewState !== 'Completed' && interviewState !== 'Error' && (
             <div className="space-y-6">
               {/* Top Session Progress Bar */}
-              <div className="flex items-center justify-between bg-white px-5 py-3 rounded-2xl border border-slate-200 shadow-sm text-xs">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white px-5 py-3 rounded-2xl border border-slate-200 shadow-sm text-xs gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <span className="font-bold text-slate-900">
                     Question {questionNumber} of {totalSessionQuestions}
                     {isRetryTurn && (
@@ -1260,11 +1757,24 @@ export const AIInterview: React.FC = () => {
                       </span>
                     )}
                   </span>
-                  <span className="text-slate-300">|</span>
-                  <span className="text-slate-500 font-medium">Role: {targetRole}</span>
+                  <span className="text-slate-300 hidden sm:inline">|</span>
+                  <span className="text-slate-600 font-medium">
+                    {interviewMode === 'manual' ? `Domain: ${selectedDomain}` : `Role: ${targetRole}`}
+                  </span>
+                  <span className="text-slate-300 hidden sm:inline">|</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+                    tabSwitchCount >= 2
+                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                      : tabSwitchCount === 1
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-slate-100 text-slate-700'
+                  }`}>
+                    <ShieldCheck className="w-3 h-3 text-indigo-600" />
+                    <span>Tab switches: {tabSwitchCount}/3</span>
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 self-end sm:self-auto">
                   {isRecording && (
                     <div className="flex items-center gap-1.5 text-rose-600 font-mono font-bold animate-pulse">
                       <Radio className="w-3.5 h-3.5 text-rose-500" />
@@ -1295,7 +1805,7 @@ export const AIInterview: React.FC = () => {
                 <div className="absolute inset-0 bg-radial-gradient from-indigo-500/10 to-transparent pointer-events-none" />
 
                 {/* Status Indicator Pill */}
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-bold tracking-wide uppercase mb-3">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-bold tracking-wide uppercase mb-2">
                   {interviewState === 'Introduction' && (
                     <>
                       <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping" />
@@ -1339,6 +1849,46 @@ export const AIInterview: React.FC = () => {
                     </>
                   )}
                 </div>
+
+                {/* Live Camera Preview Stream (Compact PIP) */}
+                {hardwareStream && (
+                  <div className="flex justify-center my-2">
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-indigo-400/40 shadow-lg bg-slate-950 w-32 h-24 sm:w-40 sm:h-28 shrink-0">
+                      <video
+                        ref={liveCamVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-xs text-[9px] font-bold text-emerald-400 flex items-center gap-1 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>LIVE CAM</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Hardware Disconnection Alert Banner */}
+                {hardwareDisconnected && (
+                  <div className="max-w-xl mx-auto my-3 p-3.5 bg-rose-500/20 border border-rose-400/50 rounded-2xl text-left backdrop-blur-sm space-y-2">
+                    <div className="flex items-center gap-2 text-rose-300 text-xs font-bold uppercase">
+                      <AlertTriangle className="w-4 h-4 text-rose-400" />
+                      <span>Hardware Disconnected</span>
+                    </div>
+                    <p className="text-xs text-rose-100 font-medium leading-relaxed">
+                      Camera or microphone stream disconnected during the interview. The interview timer is paused. Please reconnect your device and click "Reconnect Hardware".
+                    </p>
+                    <button
+                      type="button"
+                      onClick={runHardwareDeviceCheck}
+                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Reconnect Hardware</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Dynamic Waveform Visualizer */}
                 <div className="flex items-center justify-center gap-1.5 h-8 my-2">
@@ -1841,6 +2391,253 @@ export const AIInterview: React.FC = () => {
             </div>
           )}
         </Card>
+      )}
+      {/* ========================================================================= */}
+      {/* MANDATORY CAMERA & MICROPHONE HARDWARE VERIFICATION MODAL                */}
+      {/* ========================================================================= */}
+      {isDeviceCheckModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Mandatory Device & Hardware Check</h3>
+                  <p className="text-xs text-slate-500">Camera and microphone access are required before entering</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllMediaTracks();
+                  setIsDeviceCheckModalOpen(false);
+                }}
+                className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Live Camera Preview Stage */}
+            <div className="relative rounded-2xl bg-slate-950 overflow-hidden border border-slate-800 shadow-inner h-60 flex items-center justify-center">
+              <video
+                ref={previewVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+              {cameraStatus === 'checking' && (
+                <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
+                  <span className="text-xs font-semibold">Testing camera stream...</span>
+                </div>
+              )}
+              {cameraStatus === 'denied' && (
+                <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-center p-4 space-y-2">
+                  <CameraOff className="w-8 h-8 text-rose-500" />
+                  <span className="text-xs font-bold text-rose-400">Camera Permission Denied</span>
+                  <p className="text-[11px] text-slate-300 max-w-xs">
+                    Please allow camera access in your browser address bar and retry.
+                  </p>
+                </div>
+              )}
+              {cameraStatus === 'ready' && (
+                <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-xs border border-emerald-500/40 text-[10px] font-bold text-emerald-400 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Live Video Active</span>
+                </div>
+              )}
+            </div>
+
+            {/* Hardware Status Indicators */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Camera Status */}
+              <div className={`p-3.5 rounded-2xl border text-xs flex items-center gap-3 ${
+                cameraStatus === 'ready'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  : cameraStatus === 'checking'
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                  : 'bg-rose-50 border-rose-200 text-rose-900'
+              }`}>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  cameraStatus === 'ready'
+                    ? 'bg-emerald-600 text-white'
+                    : cameraStatus === 'checking'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-rose-600 text-white'
+                }`}>
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-bold">Webcam Video</div>
+                  <div className="text-[11px] opacity-80">
+                    {cameraStatus === 'ready'
+                      ? 'Live Stream Verified'
+                      : cameraStatus === 'checking'
+                      ? 'Connecting Camera...'
+                      : cameraStatus === 'denied'
+                      ? 'Access Denied'
+                      : 'Camera Error / Missing'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Microphone Status */}
+              <div className={`p-3.5 rounded-2xl border text-xs flex items-center gap-3 ${
+                micHardwareStatus === 'ready'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  : micHardwareStatus === 'checking'
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                  : 'bg-rose-50 border-rose-200 text-rose-900'
+              }`}>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  micHardwareStatus === 'ready'
+                    ? 'bg-emerald-600 text-white'
+                    : micHardwareStatus === 'checking'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-rose-600 text-white'
+                }`}>
+                  <Mic className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-bold">Microphone Audio</div>
+                  <div className="text-[11px] opacity-80">
+                    {micHardwareStatus === 'ready'
+                      ? 'Audio Input Verified'
+                      : micHardwareStatus === 'checking'
+                      ? 'Connecting Mic...'
+                      : micHardwareStatus === 'denied'
+                      ? 'Access Denied'
+                      : 'Microphone Missing'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Diagnostic Error Message */}
+            {deviceErrorMessage && (
+              <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-rose-900">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Device Verification Required</span>
+                </div>
+                <p className="leading-relaxed">{deviceErrorMessage}</p>
+                <button
+                  type="button"
+                  onClick={runHardwareDeviceCheck}
+                  className="mt-1 px-3 py-1 bg-rose-600 text-white rounded-lg font-bold text-xs hover:bg-rose-700 transition"
+                >
+                  Retry Hardware Check
+                </button>
+              </div>
+            )}
+
+            {/* Proctoring Rules Summary */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-600 space-y-1">
+              <span className="font-bold text-slate-800 block text-[11px] uppercase tracking-wider">
+                Proctoring & Integrity Notice
+              </span>
+              <p>
+                1. <strong>Device Presence:</strong> Both camera and microphone must remain connected. Disconnection will pause your session.
+              </p>
+              <p>
+                2. <strong>Tab Switch Limit:</strong> Maximum <strong>3</strong> tab switches allowed. Each switch starts a 10-second warning countdown. Reaching the limit automatically terminates your interview.
+              </p>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  stopAllMediaTracks();
+                  setIsDeviceCheckModalOpen(false);
+                }}
+                className="px-4 py-2.5 text-xs font-bold"
+              >
+                Cancel & Return
+              </Button>
+              <Button
+                type="button"
+                disabled={cameraStatus !== 'ready' || micHardwareStatus !== 'ready'}
+                onClick={handleProceedToInterviewRoom}
+                className="px-6 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex items-center gap-2 shadow-sm"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Enter Interview Room</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB-SWITCH WARNING & COUNTDOWN MODAL (MAX 3 EVENTS, 10S COUNTDOWN)       */}
+      {/* ========================================================================= */}
+      {isTabWarningOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-rose-500 text-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95">
+            <div className="w-16 h-16 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center mx-auto text-rose-400">
+              <ShieldAlert className="w-8 h-8 animate-pulse" />
+            </div>
+
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 text-xs font-bold uppercase tracking-wider border border-rose-500/40">
+                <span>Tab Switches: {tabSwitchCount}/3</span>
+              </div>
+              <h3 className="text-xl font-black text-white mt-2">
+                {tabSwitchCount === 1
+                  ? 'Tab-Switch Warning (1 of 3)'
+                  : tabSwitchCount === 2
+                  ? 'Warning 2 of 3: Final Warning'
+                  : 'Maximum Tab-Switch Limit Reached (3 of 3)'}
+              </h3>
+            </div>
+
+            {/* Prompt Warning Text */}
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-xs sm:text-sm text-slate-200 leading-relaxed font-medium">
+              {tabSwitchMessage}
+            </div>
+
+            {/* 10-Second Countdown Display */}
+            <div className="p-3 bg-rose-950/40 rounded-xl border border-rose-500/30">
+              <span className="text-[11px] text-rose-300 uppercase font-bold tracking-wider block">
+                Warning Countdown
+              </span>
+              <div className="text-3xl font-black text-rose-400 font-mono mt-1">
+                {tabWarningCountdown}s
+              </div>
+              <span className="text-[10px] text-slate-400">
+                {tabSwitchCount >= 3
+                  ? 'Interview will automatically finalize when countdown reaches zero'
+                  : 'Please return immediately to avoid further violations'}
+              </span>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-2">
+              {tabSwitchCount < 3 ? (
+                <Button
+                  onClick={handleDismissTabWarning}
+                  className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-sm shadow-lg shadow-rose-950 cursor-pointer"
+                >
+                  I Understand, Return to Interview
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleEnforceTabSwitchTermination}
+                  className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-sm shadow-lg shadow-rose-950 cursor-pointer"
+                >
+                  View Final Marksheet Now
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

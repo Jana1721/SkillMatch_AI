@@ -73,12 +73,55 @@ const TECHNICAL_TOPIC_KNOWLEDGE = {
 };
 
 /**
- * 1. Start a New Interactive Interview Session Grounded in Candidate's Own Resume
+ * Helper to construct synthetic context for Manual Domain Practice without a resume
+ */
+function getEffectiveResumeContext(sessionState, resumeRow = null) {
+  if (
+    sessionState.isManualDomainPractice ||
+    sessionState.interviewMode === 'Manual Domain Practice' ||
+    sessionState.interviewMode === 'manual' ||
+    (!resumeRow?.resume_id && !sessionState.resumeId)
+  ) {
+    const effectiveDomain = sessionState.domain || sessionState.targetRole || 'Software Development';
+    const effectiveSpecialization = sessionState.specialization || sessionState.targetRole || '';
+    return {
+      isManualDomainPractice: true,
+      interviewMode: 'manual',
+      resumeId: null,
+      userId: resumeRow?.user_id || sessionState.userId,
+      candidateName: sessionState.candidateName || 'Candidate',
+      domain: effectiveDomain,
+      specialization: effectiveSpecialization,
+      targetRole: effectiveSpecialization || effectiveDomain || 'Software Engineer',
+      projectInfo: sessionState.projectInfo || null,
+      education: [],
+      skills: { allSkillsFound: [] },
+      projects: (sessionState.projectInfo && sessionState.projectInfo.name) ? [{
+        id: 'proj-manual-1',
+        name: sessionState.projectInfo.name.trim(),
+        description: (sessionState.projectInfo.description || '').trim(),
+        technologies: []
+      }] : [],
+      experience: [],
+      certifications: [],
+      rawText: ''
+    };
+  }
+  return null;
+}
+
+/**
+ * 1. Start a New Interactive Interview Session
+ * Supports Mode 1 (Resume-Based Interview) and Mode 2 (Manual Domain Practice without a resume)
  */
 export async function startInterviewSession({
   userId = 'user-demo',
   resumeId = null,
   resumeData = null,
+  interviewMode = 'resume', // 'resume' | 'manual'
+  domain = null,
+  specialization = null,
+  projectInfo = null,
   interviewType = 'Mixed Interview',
   targetRole = 'Java Developer',
   experienceLevel = 'Fresher',
@@ -90,17 +133,52 @@ export async function startInterviewSession({
     throw new Error('Authentication required to start an AI Voice Interview. Please log in.');
   }
 
-  // 1. Retrieve the authenticated candidate's verified, ready resume context
+  const isManual = interviewMode === 'manual' || (!resumeId && !resumeData && domain);
+  const effectiveRole = specialization || domain || targetRole || 'Software Developer';
+  const effectiveDomain = domain || targetRole || 'Software Development';
+
+  // 1. Prepare resume context based on selected interview mode
   let resumeContext = null;
-  try {
-    resumeContext = await getResumeContextForCandidate({
+  if (isManual) {
+    // Mode 2: Manual Domain Practice without a resume
+    resumeContext = {
+      isManualDomainPractice: true,
+      interviewMode: 'manual',
+      resumeId: null,
       userId,
-      resumeId: resumeId || resumeData?.id || null,
-      resumeData
-    });
-  } catch (err) {
-    console.error(`[Diagnostic] [Interview Start Failed] userId=${userId} error=${err.message}`);
-    throw err;
+      candidateName: '',
+      domain: effectiveDomain,
+      specialization: specialization || '',
+      targetRole: effectiveRole,
+      projectInfo: projectInfo || null,
+      education: [],
+      skills: { allSkillsFound: [] },
+      projects: (projectInfo && projectInfo.name) ? [{
+        id: 'proj-manual-1',
+        name: projectInfo.name.trim(),
+        description: (projectInfo.description || '').trim(),
+        technologies: []
+      }] : [],
+      experience: [],
+      certifications: [],
+      rawText: ''
+    };
+  } else {
+    // Mode 1: Resume-Based Interview
+    try {
+      resumeContext = await getResumeContextForCandidate({
+        userId,
+        resumeId: resumeId || resumeData?.id || null,
+        resumeData
+      });
+      resumeContext.isManualDomainPractice = false;
+      resumeContext.interviewMode = 'resume';
+    } catch (err) {
+      console.error(`[Diagnostic] [Interview Start Failed] userId=${userId} error=${err.message}`);
+      throw new Error(
+        err.message || 'No uploaded resume found for your account. Please upload your resume first or choose Manual Domain Practice.'
+      );
+    }
   }
 
   const userRow = await dbGet('SELECT name FROM users WHERE id = ?', [userId]);
@@ -120,12 +198,12 @@ export async function startInterviewSession({
     },
     candidateName: candidateName || null,
     interviewType,
-    targetRole,
+    targetRole: effectiveRole,
     difficulty,
     totalQuestions: totalNumQuestions
   });
 
-  // 3. Pre-generate the planned session agenda covering required categories, personalized from candidate resume
+  // 3. Pre-generate the planned session agenda covering required categories
   const plannedAgenda = [];
   const askedQuestions = [];
   for (let qIndex = 0; qIndex < totalNumQuestions; qIndex++) {
@@ -133,7 +211,7 @@ export async function startInterviewSession({
     const q = await generatePersonalizedInterviewQuestion({
       candidateId: userId,
       resumeContext,
-      targetRole,
+      targetRole: effectiveRole,
       interviewType,
       experienceLevel,
       difficulty,
@@ -154,7 +232,11 @@ export async function startInterviewSession({
     userId,
     resumeId: resumeContext.resumeId,
     candidateName: candidateName || 'Candidate',
-    targetRole,
+    interviewMode: isManual ? 'Manual Domain Practice' : 'Resume-Based Interview',
+    domain: effectiveDomain,
+    specialization: specialization || null,
+    projectInfo: projectInfo || null,
+    targetRole: effectiveRole,
     interviewType,
     experienceLevel,
     difficulty,
@@ -166,6 +248,9 @@ export async function startInterviewSession({
     strongTopics: [],
     weakTopics: [],
     skippedCount: 0,
+    tabSwitchEvents: [],
+    tabSwitchCount: 0,
+    tabSwitchTerminated: false,
     status: 'in_progress',
     createdAt: new Date().toISOString()
   };
@@ -178,7 +263,7 @@ export async function startInterviewSession({
       sessionId,
       userId,
       sessionState.resumeId,
-      targetRole,
+      effectiveRole,
       interviewType,
       experienceLevel,
       difficulty,
@@ -189,7 +274,7 @@ export async function startInterviewSession({
     ]
   );
 
-  console.log(`[Diagnostic] [AI Voice Interview Initialized] sessionId=${sessionId} userId=${userId} resumeId=${resumeContext.resumeId} q1Topic="${firstQuestion.topic}"`);
+  console.log(`[Diagnostic] [AI Voice Interview Initialized] sessionId=${sessionId} userId=${userId} mode="${sessionState.interviewMode}" resumeId=${resumeContext.resumeId} q1Topic="${firstQuestion.topic}"`);
 
   return {
     sessionId,
@@ -221,8 +306,8 @@ export async function startInterviewSession({
 /**
  * 2. Submit Answer & Receive AI Evaluation + Next Resume-Grounded Question
  */
-export async function submitInterviewAnswer({ sessionId, answerText, userAnswer, timeTakenSeconds = 30, userId = null }) {
-  const effectiveAnswer = answerText || userAnswer || '';
+export async function submitInterviewAnswer({ sessionId, answerText, userAnswer, candidateAnswer, timeTakenSeconds = 30, userId = null }) {
+  const effectiveAnswer = answerText || userAnswer || candidateAnswer || '';
   const sessionRow = await dbGet(`SELECT * FROM interview_sessions WHERE id = ?`, [sessionId]);
   if (!sessionRow) {
     throw new Error(`Interview session "${sessionId}" not found.`);
@@ -242,11 +327,14 @@ export async function submitInterviewAnswer({ sessionId, answerText, userAnswer,
     throw new Error('Please speak or type an answer, or click "Skip Question" if you wish to pass.');
   }
 
-  // Retrieve candidate's verified resume context
-  const resumeContext = await getResumeContextForCandidate({
-    userId: sessionRow.user_id,
-    resumeId: sessionRow.resume_id
-  });
+  // Retrieve candidate's verified resume context (or synthetic context for manual domain practice)
+  let resumeContext = getEffectiveResumeContext(sessionState, sessionRow);
+  if (!resumeContext) {
+    resumeContext = await getResumeContextForCandidate({
+      userId: sessionRow.user_id,
+      resumeId: sessionRow.resume_id
+    });
+  }
 
   // Evaluate candidate answer and generate next personalized question / follow-up
   const progressResult = await evaluateCandidateAnswerAndProgress({
@@ -421,10 +509,13 @@ export async function skipInterviewQuestion({ sessionId, userId = null }) {
     if (sessionState.agenda && sessionState.agenda[nextQIndex]) {
       nextQuestion = sessionState.agenda[nextQIndex];
     } else {
-      const resumeContext = await getResumeContextForCandidate({
-        userId: sessionRow.user_id,
-        resumeId: sessionRow.resume_id
-      });
+      let resumeContext = getEffectiveResumeContext(sessionState, sessionRow);
+      if (!resumeContext) {
+        resumeContext = await getResumeContextForCandidate({
+          userId: sessionRow.user_id,
+          resumeId: sessionRow.resume_id
+        });
+      }
 
       nextQuestion = await generatePersonalizedInterviewQuestion({
         candidateId: sessionState.userId,
@@ -556,6 +647,65 @@ export async function getLatestSession() {
   const sessionRow = await dbGet(`SELECT * FROM interview_sessions ORDER BY created_at DESC LIMIT 1`);
   if (!sessionRow) return null;
   return JSON.parse(sessionRow.session_data_json);
+}
+
+/**
+ * 8. Record Tab-Switch Proctoring Event (Max 3 events allowed)
+ */
+export async function recordTabSwitchEvent({ sessionId, userId = null, eventNumber, maxEvents = 3 }) {
+  const sessionRow = await dbGet(`SELECT * FROM interview_sessions WHERE id = ?`, [sessionId]);
+  if (!sessionRow) throw new Error(`Interview session "${sessionId}" not found.`);
+
+  if (userId && sessionRow.user_id !== userId) {
+    throw new Error('Access denied. You cannot modify another candidate\'s interview session.');
+  }
+
+  const sessionState = JSON.parse(sessionRow.session_data_json);
+  sessionState.tabSwitchEvents = sessionState.tabSwitchEvents || [];
+
+  const currentCount = sessionState.tabSwitchEvents.length + 1;
+  const numEvent = parseInt(eventNumber, 10) || currentCount;
+
+  const event = {
+    eventNumber: numEvent,
+    timestamp: new Date().toISOString()
+  };
+  sessionState.tabSwitchEvents.push(event);
+  sessionState.tabSwitchCount = sessionState.tabSwitchEvents.length;
+
+  const isTerminated = sessionState.tabSwitchCount >= maxEvents;
+  let finalReport = null;
+
+  if (isTerminated) {
+    sessionState.tabSwitchTerminated = true;
+    sessionState.status = 'terminated_tab_switch';
+    sessionState.completedAt = new Date().toISOString();
+    finalReport = compileFinalInterviewReport(sessionState);
+    await saveAndNotifyEvaluation(sessionState, finalReport);
+  }
+
+  await dbRun(
+    `UPDATE interview_sessions SET session_data_json = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [JSON.stringify(sessionState), sessionState.status, sessionId]
+  );
+
+  console.log(`[Diagnostic] [Tab Switch Event Logged] sessionId=${sessionId} event=${sessionState.tabSwitchCount}/${maxEvents} isTerminated=${isTerminated}`);
+
+  return {
+    success: true,
+    eventNumber: numEvent,
+    tabSwitchCount: sessionState.tabSwitchCount,
+    maxEvents,
+    isTerminated,
+    shouldTerminate: isTerminated,
+    warningMessage: sessionState.tabSwitchCount === 1
+      ? 'You have switched away from the interview. Please return to the interview screen. Further switches may end your interview.'
+      : sessionState.tabSwitchCount === 2
+      ? 'Warning 2 of 3: Please remain on the interview screen. One more recorded tab switch will reach the allowed limit.'
+      : 'Maximum tab-switch limit reached. Your interview has been paused or ended according to the interview policy.',
+    event,
+    finalReport
+  };
 }
 
 // ============================================================================
@@ -1216,6 +1366,9 @@ export function compileFinalInterviewReport(sessionState) {
       month: 'long',
       day: 'numeric'
     }),
+    interviewMode: sessionState.interviewMode || 'Resume-Based Interview',
+    selectedDomain: sessionState.domain || sessionState.targetRole,
+    specialization: sessionState.specialization || null,
     targetJobRole: sessionState.targetRole,
     interviewType: sessionState.interviewType,
     difficulty: sessionState.difficulty,
@@ -1226,7 +1379,11 @@ export function compileFinalInterviewReport(sessionState) {
     totalMaxMarks,
     overallPercentage,
     performanceLevel,
-    completionStatus: sessionState.status === 'completed' ? 'Completed' : 'Partially Completed'
+    tabSwitchCount: sessionState.tabSwitchCount || 0,
+    tabSwitchTerminated: Boolean(sessionState.tabSwitchTerminated),
+    completionStatus: sessionState.tabSwitchTerminated
+      ? 'Terminated (Tab-switch limit exceeded 3/3)'
+      : (sessionState.status === 'completed' ? 'Completed' : 'Partially Completed')
   };
 
   // 6B. Question-by-question evaluation (with explanation, correct points, missing points, criteria)
@@ -1342,6 +1499,7 @@ export function compileFinalInterviewReport(sessionState) {
         totalAwardedMarks: Number(totalAwarded.toFixed(1)),
         totalMaxMarks: totalMax,
         questionCount: matchingTurns.length,
+        questionsAssessed: matchingTurns.length,
         evidence: `Assessed across ${matchingTurns.length} question(s) regarding ${matchingTurns.map(q => q.topic).join(', ')}.`
       });
     }
@@ -1521,6 +1679,10 @@ export function compileFinalInterviewReport(sessionState) {
     roleReadinessVerdict = `This interview highlighted several critical knowledge gaps required for a ${sessionState.targetRole}. Systematic study of the fundamental concepts, practicing aloud, and building hands-on projects will help bridge these gaps.`;
   }
 
+  if (sessionState.tabSwitchTerminated) {
+    roleReadinessVerdict = `[PROCTORING NOTICE: Interview terminated early due to exceeding the maximum allowed tab-switch limit of 3 events.] ${roleReadinessVerdict}`;
+  }
+
   const recommendedNextActions = [
     `Review the ${mistakesAndWeakAreas.length} weak areas detailed in this marksheet and study the suggested model answers.`,
     `Spend 30 minutes revising Priority 1 topics before scheduling your next mock interview.`,
@@ -1588,6 +1750,11 @@ export function compileFinalInterviewReport(sessionState) {
   return {
     sessionId: sessionState.sessionId,
     candidateName: sessionState.candidateName,
+    interviewMode: sessionState.interviewMode || 'Resume-Based Interview',
+    selectedDomain: sessionState.domain || sessionState.targetRole,
+    specialization: sessionState.specialization || null,
+    tabSwitchCount: sessionState.tabSwitchCount || 0,
+    tabSwitchTerminated: Boolean(sessionState.tabSwitchTerminated),
     targetRole: sessionState.targetRole,
     interviewType: sessionState.interviewType,
     difficulty: sessionState.difficulty,

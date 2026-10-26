@@ -40,6 +40,29 @@ export const MASTER_CATEGORIES = [
   'Scenario-Based Reasoning'
 ];
 
+// 19 Specialized Domains as required by Master Prompt Section 3
+export const INTERVIEW_DOMAINS = [
+  'Software Development',
+  'Java Development',
+  'Python Development',
+  'Web Development',
+  'Frontend Development',
+  'Backend Development',
+  'Full-Stack Development',
+  'Data Analytics',
+  'Data Science and Machine Learning',
+  'Artificial Intelligence',
+  'Cloud Computing',
+  'Cybersecurity',
+  'Database Management and SQL',
+  'Software Testing and QA',
+  'ServiceNow',
+  'HR and Behavioral Interviews',
+  'Fresher and Graduate Interviews',
+  'Project-Based Interviews',
+  'General Technical Interviews'
+];
+
 /**
  * Call Google Gemini REST API
  */
@@ -272,72 +295,108 @@ function generateDynamicResumeQuestion({
     const flagshipProj = candidateProjects[0];
     const projName = flagshipProj?.name;
 
-    questionOptions.push({
-      category: 'Resume and Introduction',
-      topic: 'Tell Me About Yourself',
-      difficulty: 'Beginner',
-      context: `Education: ${degree} at ${college}`,
-      questionText: 'Tell me about yourself.',
-      expectedConcepts: ['clear verbal structure', 'academic background', 'core technical stack', 'career motivation'],
-      modelAnswer: `I am a ${degree} student at ${college} passionate about software engineering and ${targetRole} positions. My technical foundation spans ${(candidateSkills.slice(0, 3).join(', ')) || 'modern programming'}. I have built practical projects where I applied architectural principles and data structures to solve concrete problems.`,
-      hint: 'Structure chronologically: academic path, key skills, and passion for this role.'
-    });
-
-    questionOptions.push({
-      category: 'Resume and Introduction',
-      topic: 'Resume Walkthrough & Achievements',
-      difficulty: 'Beginner / Intermediate',
-      context: `Education: ${degree} at ${college}`,
-      questionText: 'Can you walk me through your resume and highlight your key technical achievements?',
-      expectedConcepts: ['structured walkthrough', 'highlights from education and skills', 'concrete technical achievements'],
-      modelAnswer: `Walking through my resume, my education provided a solid foundation in computer science at ${college}. Key achievements include mastering ${(candidateSkills.slice(0, 3).join(', ')) || 'software development tools'}, delivering functioning applications, and maintaining rigorous testing practices.`,
-      hint: 'Walk through your education, key projects, and the technical milestones you are most proud of.'
-    });
-
-    questionOptions.push({
-      category: 'Resume and Introduction',
-      topic: 'Academic Preparation & Technical Foundation',
-      difficulty: 'Beginner',
-      context: `Education: ${degree} at ${college}`,
-      questionText: `Can you explain your academic background in ${degree} at ${college} and how it prepared you for this role?`,
-      expectedConcepts: ['academic curriculum', 'data structures and systems concepts', 'practical coursework', 'readiness for industry'],
-      modelAnswer: `My coursework at ${college} provided rigorous training in algorithms, database design, and software engineering. Completing laboratory assignments and collaborative coursework gave me the practical mindset needed for ${targetRole} responsibilities.`,
-      hint: 'Connect specific coursework (like DSA, DBMS, or OS) to the daily work of this role.'
-    });
-
-    questionOptions.push({
-      category: 'Resume and Introduction',
-      topic: 'Technical Focus & Core Skills',
-      difficulty: 'Beginner / Intermediate',
-      context: `Core Skills: ${(candidateSkills.slice(0, 3).join(', ')) || 'Software Engineering'}`,
-      questionText: 'What motivated you to focus on the skills and tools listed in your resume?',
-      expectedConcepts: ['motivation for technology choices', 'practical problem solving', 'learning journey', 'alignment with career path'],
-      modelAnswer: `I focused on ${(candidateSkills.slice(0, 3).join(', ')) || 'software development'} because of their wide adoption, strong community support, and power in building scalable backend systems. Building applications with these tools deepened my passion for software engineering.`,
-      hint: 'Explain what drew you to your primary programming languages and technologies.'
-    });
-
-    questionOptions.push({
-      category: 'Resume and Introduction',
-      topic: 'Degree & Specialization Choice',
-      difficulty: 'Beginner',
-      context: `Education: ${degree}`,
-      questionText: 'Why did you choose your degree and specialization?',
-      expectedConcepts: ['genuine passion for technology', 'early curiosity or problem solving', 'long-term career vision'],
-      modelAnswer: `I chose ${degree} because I have always been fascinated by how software automates complex tasks and connects people globally. The opportunity to build software from first principles inspired my path.`,
-      hint: 'Share what sparked your interest in computer science and technology.'
-    });
-
-    if (projName) {
+    if (resumeContext.isManualDomainPractice) {
+      const domName = resumeContext.domain || targetRole || 'Software Development';
       questionOptions.push({
         category: 'Resume and Introduction',
-        topic: `${projName} Overview`,
-        difficulty: 'Beginner / Intermediate',
-        context: `Featured Project: "${projName}"`,
-        questionText: `Can you provide an overview of your project "${projName}" and the primary problem it was designed to solve?`,
-        expectedConcepts: ['problem statement', 'project overview', 'technologies used', 'end-to-end functionality'],
-        modelAnswer: `In "${projName}", the core objective was solving key operational challenges through automated processing. I designed the architecture to handle user inputs, process logic reliably, and store persistent records.`,
-        hint: 'Summarize the problem, the core solution, and the technologies you used.'
+        topic: 'Tell Me About Yourself',
+        difficulty: 'Beginner',
+        context: `Domain Practice: ${domName}`,
+        questionText: 'Tell me about yourself.',
+        expectedConcepts: ['clear verbal structure', 'technical focus', 'core programming interests', 'career motivation'],
+        modelAnswer: `I am an aspiring software engineer focusing on ${domName}. My technical foundation spans problem solving, algorithms, and hands-on coding, and I am driven to build scalable, reliable software.`,
+        hint: 'Structure chronologically: your background, core technical focus, and career goals.'
       });
+
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Domain Specialization Motivation',
+        difficulty: 'Beginner',
+        context: `Domain Practice: ${domName}`,
+        questionText: `What motivated you to pursue practice in ${domName}, and what specific technical concepts in this domain interest you most?`,
+        expectedConcepts: ['clear motivation for choosing domain', 'concrete technical interests', 'eagerness to build practical systems'],
+        modelAnswer: `I chose ${domName} because of its critical importance in modern software systems and the engineering depth it demands. I am particularly interested in clean architectural design, efficient algorithms, and low-latency execution.`,
+        hint: 'Explain what inspired you to focus on this domain and the specific technologies you find exciting.'
+      });
+
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Core Technical Strengths & Self-Direction',
+        difficulty: 'Beginner / Intermediate',
+        context: `Domain Practice: ${domName}`,
+        questionText: 'What technical skills or concepts do you feel most confident working with, and how do you approach learning unfamiliar technologies?',
+        expectedConcepts: ['concrete technical strengths', 'practical learning methodology', 'documentation review and testing'],
+        modelAnswer: `My strongest skills are in fundamental data structures, systematic debugging, and writing modular code. When learning new tools, I read documentation, build proof-of-concept prototypes, and write unit tests to verify behavior.`,
+        hint: 'Highlight 2-3 specific technical strengths and the concrete steps you take to learn.'
+      });
+    } else {
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Tell Me About Yourself',
+        difficulty: 'Beginner',
+        context: `Education: ${degree} at ${college}`,
+        questionText: 'Tell me about yourself.',
+        expectedConcepts: ['clear verbal structure', 'academic background', 'core technical stack', 'career motivation'],
+        modelAnswer: `I am a ${degree} student at ${college} passionate about software engineering and ${targetRole} positions. My technical foundation spans ${(candidateSkills.slice(0, 3).join(', ')) || 'modern programming'}. I have built practical projects where I applied architectural principles and data structures to solve concrete problems.`,
+        hint: 'Structure chronologically: academic path, key skills, and passion for this role.'
+      });
+
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Resume Walkthrough & Achievements',
+        difficulty: 'Beginner / Intermediate',
+        context: `Education: ${degree} at ${college}`,
+        questionText: 'Can you walk me through your resume and highlight your key technical achievements?',
+        expectedConcepts: ['structured walkthrough', 'highlights from education and skills', 'concrete technical achievements'],
+        modelAnswer: `Walking through my resume, my education provided a solid foundation in computer science at ${college}. Key achievements include mastering ${(candidateSkills.slice(0, 3).join(', ')) || 'software development tools'}, delivering functioning applications, and maintaining rigorous testing practices.`,
+        hint: 'Walk through your education, key projects, and the technical milestones you are most proud of.'
+      });
+
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Academic Preparation & Technical Foundation',
+        difficulty: 'Beginner',
+        context: `Education: ${degree} at ${college}`,
+        questionText: `Can you explain your academic background in ${degree} at ${college} and how it prepared you for this role?`,
+        expectedConcepts: ['academic curriculum', 'data structures and systems concepts', 'practical coursework', 'readiness for industry'],
+        modelAnswer: `My coursework at ${college} provided rigorous training in algorithms, database design, and software engineering. Completing laboratory assignments and collaborative coursework gave me the practical mindset needed for ${targetRole} responsibilities.`,
+        hint: 'Connect specific coursework (like DSA, DBMS, or OS) to the daily work of this role.'
+      });
+
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Technical Focus & Core Skills',
+        difficulty: 'Beginner / Intermediate',
+        context: `Core Skills: ${(candidateSkills.slice(0, 3).join(', ')) || 'Software Engineering'}`,
+        questionText: 'What motivated you to focus on the skills and tools listed in your resume?',
+        expectedConcepts: ['motivation for technology choices', 'practical problem solving', 'learning journey', 'alignment with career path'],
+        modelAnswer: `I focused on ${(candidateSkills.slice(0, 3).join(', ')) || 'software development'} because of their wide adoption, strong community support, and power in building scalable backend systems. Building applications with these tools deepened my passion for software engineering.`,
+        hint: 'Explain what drew you to your primary programming languages and technologies.'
+      });
+
+      questionOptions.push({
+        category: 'Resume and Introduction',
+        topic: 'Degree & Specialization Choice',
+        difficulty: 'Beginner',
+        context: `Education: ${degree}`,
+        questionText: 'Why did you choose your degree and specialization?',
+        expectedConcepts: ['genuine passion for technology', 'early curiosity or problem solving', 'long-term career vision'],
+        modelAnswer: `I chose ${degree} because I have always been fascinated by how software automates complex tasks and connects people globally. The opportunity to build software from first principles inspired my path.`,
+        hint: 'Share what sparked your interest in computer science and technology.'
+      });
+
+      if (projName) {
+        questionOptions.push({
+          category: 'Resume and Introduction',
+          topic: `${projName} Overview`,
+          difficulty: 'Beginner / Intermediate',
+          context: `Featured Project: "${projName}"`,
+          questionText: `Can you provide an overview of your project "${projName}" and the primary problem it was designed to solve?`,
+          expectedConcepts: ['problem statement', 'project overview', 'technologies used', 'end-to-end functionality'],
+          modelAnswer: `In "${projName}", the core objective was solving key operational challenges through automated processing. I designed the architecture to handle user inputs, process logic reliably, and store persistent records.`,
+          hint: 'Summarize the problem, the core solution, and the technologies you used.'
+        });
+      }
     }
   }
 
@@ -457,7 +516,40 @@ function generateDynamicResumeQuestion({
         });
       });
     } else {
-      // If candidate has NO formal projects listed in resume, ask about academic assignments without assuming formal project
+      // General project development questions when no formal project was provided
+      questionOptions.push({
+        category: 'Project Understanding',
+        topic: 'Software Project Lifecycle & Architecture',
+        difficulty: difficulty,
+        context: 'General Project Development Methodology',
+        questionText: 'When developing a software project from scratch, how do you typically structure the components, from database schema design to the application and API layers?',
+        expectedConcepts: ['modular architectural layers', 'database schema design & normalization', 'api endpoint contracts', 'separation of concerns'],
+        modelAnswer: 'I begin by defining database schemas and entity relationships, implement business logic within domain service classes decoupled from HTTP controllers, and expose clean RESTful endpoints validated against schema definitions.',
+        hint: 'Explain how you separate database persistence, business logic, and API controllers.'
+      });
+
+      questionOptions.push({
+        category: 'Project Understanding',
+        topic: 'Testing & Quality Assurance in Projects',
+        difficulty: difficulty,
+        context: 'General Project Testing Workflow',
+        questionText: 'During a software project development cycle, what strategies and testing levels do you implement to ensure reliability and catch edge-case bugs early?',
+        expectedConcepts: ['unit testing core functions', 'integration testing api routes', 'boundary value validation', 'automated test runners'],
+        modelAnswer: 'I follow a structured testing approach: authoring unit tests for core algorithmic logic and calculations, testing API endpoints with boundary values and invalid payloads, and using continuous integration to run test suites automatically.',
+        hint: 'Mention testing at different layers: unit tests for logic, integration tests for APIs, and boundary input validation.'
+      });
+
+      questionOptions.push({
+        category: 'Project Understanding',
+        topic: 'Technical Bottlenecks & Debugging Methodology',
+        difficulty: difficulty,
+        context: 'General Engineering Problem Solving',
+        questionText: 'When an unexpected performance bottleneck or critical bug occurs in a project, what structured debugging methodology do you follow to identify the root cause?',
+        expectedConcepts: ['reproducing issue with test payload', 'inspecting system telemetry and logs', 'using profiling tools or debuggers', 'verifying with regression tests'],
+        modelAnswer: 'I first reproduce the failure in a staging environment using the exact failing inputs, inspect server and database slow-query logs, use a debugger or profiler to isolate the faulty code path, implement a targeted fix, and add a regression test.',
+        hint: 'Walk through: Reproducing -> Log inspection -> Code profiling -> Fix implementation -> Regression test.'
+      });
+
       questionOptions.push({
         category: 'Project Understanding',
         topic: 'Academic Coursework & Technical Exercises',
@@ -472,15 +564,17 @@ function generateDynamicResumeQuestion({
   }
 
   // ============================================================================
-  // CATEGORY I: TECHNICAL FUNDAMENTALS (JAVA OR CANDIDATE'S STACK)
+  // CATEGORY I: TECHNICAL FUNDAMENTALS (DOMAINS OR CANDIDATE'S STACK)
   // ============================================================================
   if (targetCategory === 'Technical Fundamentals') {
-    if (skillsLower.some(s => s.includes('java')) || targetRole.toLowerCase().includes('java')) {
+    const domainText = (resumeContext.domain || targetRole || '').toLowerCase();
+
+    if (skillsLower.some(s => s.includes('java')) || domainText.includes('java')) {
       questionOptions.push({
         category: 'Technical Fundamentals',
         topic: 'Java Collections Framework',
         difficulty: 'Hard',
-        context: 'Verified Skill: Java',
+        context: 'Domain: Java Development',
         questionText: `How does HashMap work internally in Java? What happens during a hash collision, and when does a bucket convert from a linked list into a red-black tree in Java 8+?`,
         expectedConcepts: ['hashcode and equals contract', 'bucket index (n-1)&hash', 'collision chaining', 'treeify threshold 8 to red-black tree', 'concurrenthashmap for thread safety'],
         modelAnswer: `HashMap uses an array of Node buckets indexed by (n-1)&hash. Collisions are chained in linked lists; when a bucket reaches 8 elements and capacity is >= 64, it converts to a Red-Black Tree, improving lookup from O(n) to O(log n).`,
@@ -491,8 +585,8 @@ function generateDynamicResumeQuestion({
         category: 'Technical Fundamentals',
         topic: 'Java OOP Principles',
         difficulty: difficulty,
-        context: 'Verified Skill: Java',
-        questionText: `You have listed Java as a core technical skill on your resume. Can you explain the four core OOP principles in Java—specifically how runtime polymorphism differs from compile-time polymorphism?`,
+        context: 'Domain: Java Development',
+        questionText: `Can you explain the four core OOP principles in Java—specifically how runtime polymorphism differs from compile-time polymorphism?`,
         expectedConcepts: ['encapsulation', 'inheritance', 'polymorphism', 'abstraction', 'method overriding runtime', 'method overloading compile-time'],
         modelAnswer: `The four OOP principles are encapsulation (protecting data via private fields), inheritance (code reuse via extends), polymorphism (overloading compile-time vs overriding runtime with dynamic dispatch), and abstraction (hiding details via interfaces).`,
         hint: 'Explain encapsulation, inheritance, polymorphism, and abstraction, highlighting @Override.'
@@ -502,72 +596,154 @@ function generateDynamicResumeQuestion({
         category: 'Technical Fundamentals',
         topic: 'Java Exception Handling & Memory',
         difficulty: 'Medium',
-        context: 'Verified Skill: Java',
+        context: 'Domain: Java Development',
         questionText: `In Java, what is the architectural difference between Checked and Unchecked exceptions? In addition, how does memory allocation differ between the Stack and the Heap?`,
         expectedConcepts: ['checked exceptions compile-time subclass exception', 'unchecked exceptions runtime subclass runtimeexception', 'stack for primitive and frame pointers', 'heap for objects and garbage collection'],
         modelAnswer: `Checked exceptions must be declared or caught at compile time, whereas Unchecked exceptions occur at runtime. Primitive variables and method frames live on the Stack, while objects reside on the Heap managed by Garbage Collection.`,
         hint: 'Contrast compile-time Exception vs RuntimeException, and Stack call frames vs Heap objects.'
       });
-    } else if (skillsLower.some(s => s.includes('python')) || targetRole.toLowerCase().includes('python') || targetRole.toLowerCase().includes('machine learning')) {
+    } else if (domainText.includes('database') || domainText.includes('sql')) {
       questionOptions.push({
         category: 'Technical Fundamentals',
-        topic: 'Python Memory & Data Structures',
+        topic: 'SQL Joins, Grouping & Indexing',
         difficulty: difficulty,
-        context: 'Verified Skill: Python',
-        questionText: `In your resume, you listed Python. Can you explain how Python manages memory, the difference between mutable and immutable types, and how the Global Interpreter Lock (GIL) affects concurrency?`,
-        expectedConcepts: ['mutable vs immutable types', 'reference counting and cyclic gc', 'gil restricts bytecodes to one thread', 'multiprocessing for cpu bound tasks'],
-        modelAnswer: `Mutable objects (lists, dicts) can be modified in place, while immutable types (strings, tuples) create new allocations. Python uses reference counting and cyclic GC. The GIL prevents concurrent native thread execution, making multiprocessing necessary for CPU tasks.`,
-        hint: 'Contrast lists vs tuples, explain reference counting GC, and describe how the GIL restricts threading.'
+        context: 'Domain: Database Management and SQL',
+        questionText: 'Can you explain the difference between an INNER JOIN and a LEFT JOIN in SQL? How does the WHERE clause differ from the HAVING clause, and how does a B-Tree index improve query performance?',
+        expectedConcepts: ['inner join vs left join', 'where filters rows vs having filters groups', 'b-tree index lookup O(log n)', 'indexing write overhead'],
+        modelAnswer: 'An INNER JOIN returns matching rows between tables, while a LEFT JOIN returns all rows from the left table with matched rows from the right table. WHERE filters rows before grouping, whereas HAVING filters aggregated groups after GROUP BY. A B-Tree index provides O(log n) lookups but introduces write overhead on inserts and updates.',
+        hint: 'Contrast row-level vs group-level filtering, and explain B-Tree index search speed vs write overhead.'
       });
-    } else if (skillsLower.some(s => s.includes('react') || s.includes('javascript') || s.includes('typescript'))) {
+
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Database Normalization & ACID Transactions',
+        difficulty: difficulty,
+        context: 'Domain: Database Management and SQL',
+        questionText: 'What are the ACID properties in relational databases, and what is the difference between First, Second, and Third Normal Form (1NF, 2NF, 3NF)?',
+        expectedConcepts: ['atomicity consistency isolation durability', '1nf atomic values', '2nf remove partial dependencies', '3nf remove transitive dependencies'],
+        modelAnswer: 'ACID ensures Atomicity (all-or-nothing), Consistency (valid state transitions), Isolation (concurrent execution safety), and Durability (committed persistence). 1NF requires atomic scalar values, 2NF removes partial key dependencies, and 3NF eliminates transitive dependencies.',
+        hint: 'Walk through ACID definitions and 1NF, 2NF, 3NF dependency elimination.'
+      });
+    } else if (domainText.includes('analytics')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Data Analytics Aggregates & Data Cleaning',
+        difficulty: difficulty,
+        context: 'Domain: Data Analytics',
+        questionText: 'In data analytics, how do you handle missing or corrupted data in a dataset, and when would you use a Window Function in SQL rather than a standard GROUP BY?',
+        expectedConcepts: ['imputation vs deletion of missing data', 'identifying outliers with IQR or z-scores', 'window functions keep individual row granularity', 'partition by and order by'],
+        modelAnswer: 'Missing data can be handled via mean/median imputation for normal distributions or deletion if missingness is completely at random. Window functions compute aggregates over row partitions without collapsing the individual rows, unlike standard GROUP BY.',
+        hint: 'Explain imputation trade-offs and how OVER (PARTITION BY ...) retains row-level detail.'
+      });
+    } else if (domainText.includes('data science') || domainText.includes('machine learning')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Machine Learning Model Evaluation & Overfitting',
+        difficulty: difficulty,
+        context: 'Domain: Data Science and Machine Learning',
+        questionText: 'How do you evaluate a classification model when class distributions are highly imbalanced? How do Precision, Recall, and the F1-Score differ, and how does regularization prevent overfitting?',
+        expectedConcepts: ['imbalanced classes accuracy paradox', 'precision true positives over predicted positives', 'recall true positives over actual positives', 'f1 harmonic mean', 'l1 lasso vs l2 ridge regularization'],
+        modelAnswer: 'When classes are imbalanced, raw accuracy is misleading. Precision measures the purity of positive predictions, Recall measures coverage of actual positives, and F1-score provides their harmonic mean. L1 and L2 regularization penalize large model coefficients to prevent overfitting on noise.',
+        hint: 'Explain why accuracy fails on imbalanced data, define Precision/Recall, and discuss regularization penalties.'
+      });
+    } else if (domainText.includes('artificial intelligence') || domainText.includes('ai')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'AI Vector Embeddings & RAG Architectures',
+        difficulty: difficulty,
+        context: 'Domain: Artificial Intelligence',
+        questionText: 'How do vector embeddings enable semantic similarity search, and how does Retrieval-Augmented Generation (RAG) differ from model fine-tuning for question-answering systems?',
+        expectedConcepts: ['dense vector representations in high-dimensional space', 'cosine similarity metric', 'rag retrieves dynamic external knowledge at inference', 'fine-tuning updates model weights for style or domain vocabulary'],
+        modelAnswer: 'Vector embeddings map text into dense mathematical vectors where semantic similarity corresponds to cosine proximity. RAG dynamically retrieves relevant context from a vector database at inference time to ground responses, whereas fine-tuning permanently updates model weights.',
+        hint: 'Contrast dynamic document context injection (RAG) with modifying neural network weights (fine-tuning).'
+      });
+    } else if (domainText.includes('testing') || domainText.includes('qa')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Testing Pyramid & Automated Test Strategies',
+        difficulty: difficulty,
+        context: 'Domain: Software Testing and QA',
+        questionText: 'Can you explain the Testing Pyramid concept—specifically the proportion and purpose of Unit, Integration, and End-to-End tests? How does Boundary Value Analysis catch subtle edge cases?',
+        expectedConcepts: ['testing pyramid ratio', 'unit tests fast and isolated', 'integration tests verify component contracts', 'e2e tests verify user journeys', 'boundary value analysis on min max limits'],
+        modelAnswer: 'The Testing Pyramid recommends a broad foundation of fast unit tests, a middle layer of integration tests verifying component boundaries, and a small suite of E2E tests for critical user journeys. Boundary Value Analysis tests inputs right at, above, and below boundaries where off-by-one errors frequently lurk.',
+        hint: 'Describe the layers of the pyramid and how boundary value analysis targets off-by-one bugs.'
+      });
+    } else if (domainText.includes('servicenow')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'ServiceNow Platform Architecture & Scripting',
+        difficulty: difficulty,
+        context: 'Domain: ServiceNow',
+        questionText: 'In ServiceNow, what is the architectural difference between Client Scripts and Business Rules? When should you use GlideAggregate instead of GlideRecord for querying large tables?',
+        expectedConcepts: ['client scripts execute in browser on event', 'business rules execute server side on database action', 'glideaggregate optimized for count sum grouping', 'gliderecord object overhead on large datasets'],
+        modelAnswer: 'Client Scripts run in the candidate browser upon onLoad, onChange, or onSubmit events to manage form behavior. Business Rules execute server-side on database operations (before/after insert/update). GlideAggregate leverages native SQL aggregation functions, avoiding the instantiation of thousands of GlideRecord objects.',
+        hint: 'Distinguish browser execution vs server database triggers, and explain query aggregation efficiency.'
+      });
+    } else if (domainText.includes('backend')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'RESTful API Architecture & Backend Caching',
+        difficulty: difficulty,
+        context: 'Domain: Backend Development',
+        questionText: 'What architectural constraints define a RESTful API, and how do idempotent HTTP methods differ from non-idempotent ones? How does integrating a Redis caching layer improve backend throughput?',
+        expectedConcepts: ['statelessness and standard http verbs', 'get put delete idempotency vs post', 'redis in-memory cache layer', 'ttl cache invalidation strategies'],
+        modelAnswer: 'REST enforces statelessness, client-server decoupling, and standard HTTP verbs. GET, PUT, and DELETE are idempotent because repeated identical requests produce identical state, whereas POST creates new resources. In-memory caching with Redis eliminates repetitive database reads for hot data.',
+        hint: 'Discuss statelessness, verb idempotency (PUT vs POST), and in-memory caching trade-offs.'
+      });
+    } else if (domainText.includes('full-stack') || domainText.includes('full stack')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Full-Stack Architecture & State Synchronization',
+        difficulty: difficulty,
+        context: 'Domain: Full-Stack Development',
+        questionText: 'How does data flow in a modern full-stack web application—from user interaction in the frontend to API dispatch, server authentication, database persistence, and UI re-rendering?',
+        expectedConcepts: ['frontend state dispatch and api request', 'jwt or session middleware validation', 'database transaction and query execution', 'reactive ui reconciliation with json response'],
+        modelAnswer: 'An interaction triggers an asynchronous API call carrying authentication headers. The backend server authenticates the token, validates inputs, and executes a database transaction. Upon receiving the JSON response, the frontend updates state, triggering Virtual DOM diffing to re-render affected components.',
+        hint: 'Walk through: UI event -> HTTP dispatch -> Server auth & logic -> DB commit -> UI reactive update.'
+      });
+    } else if (domainText.includes('cloud') || domainText.includes('devops')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Cloud Infrastructure & Containerization',
+        difficulty: difficulty,
+        context: 'Domain: Cloud Computing',
+        questionText: 'What are the architectural differences between running applications in Virtual Machines versus Docker containers? How do cloud auto-scaling groups and load balancers maintain high availability?',
+        expectedConcepts: ['containers share host os kernel vs vms virtualize full hardware', 'docker lightweight start and immutability', 'load balancer health checks', 'auto scaling horizontally based on cpu metrics'],
+        modelAnswer: 'Virtual Machines virtualize the entire hardware layer with individual guest OS kernels, whereas Docker containers share the host kernel, making them lightweight and fast to start. Cloud load balancers perform health checks to route traffic away from failing instances while auto-scaling groups dynamically provision containers based on traffic.',
+        hint: 'Contrast container kernel-sharing with VM hypervisors, and explain load balancer health checks.'
+      });
+    } else if (domainText.includes('cybersecurity') || domainText.includes('security')) {
+      questionOptions.push({
+        category: 'Technical Fundamentals',
+        topic: 'Network Security & OWASP Vulnerabilities',
+        difficulty: difficulty,
+        context: 'Domain: Cybersecurity',
+        questionText: 'How do SQL Injection and Cross-Site Scripting (XSS) attacks compromise web applications, and what defense mechanisms prevent them? How does asymmetric encryption differ from symmetric encryption during a TLS handshake?',
+        expectedConcepts: ['sql injection parameterized queries', 'xss output encoding and content security policy', 'symmetric encryption fast shared key', 'asymmetric encryption public private key exchange in tls'],
+        modelAnswer: 'SQL Injection manipulates database queries and is prevented by parameterized prepared statements. XSS injects malicious scripts and is mitigated by contextual output encoding and CSP headers. Symmetric encryption uses a shared key for bulk data encryption, while asymmetric encryption uses public/private keys to securely exchange that shared key during the TLS handshake.',
+        hint: 'Explain prepared statements for SQLi, output encoding for XSS, and key exchange in TLS.'
+      });
+    } else if (domainText.includes('web') || domainText.includes('frontend') || skillsLower.some(s => s.includes('react') || s.includes('javascript') || s.includes('typescript'))) {
       questionOptions.push({
         category: 'Technical Fundamentals',
         topic: 'JavaScript Event Loop & React Reconciliation',
         difficulty: difficulty,
-        context: 'Verified Skill: JavaScript / React',
-        questionText: `You have highlighted JavaScript and React on your resume. Can you walk me through the JavaScript Event Loop, Call Stack, and Microtask queue? In React, why is immutability essential during state updates?`,
+        context: 'Domain: Web & Frontend Development',
+        questionText: `Can you walk me through the JavaScript Event Loop, Call Stack, and Microtask queue? In React, why is immutability essential during state updates?`,
         expectedConcepts: ['call stack single-threaded execution', 'microtask queue promises vs macrotask timer', 'immutability enabling shallow comparisons', 'virtual dom diffing reconciliation'],
         modelAnswer: `JavaScript runs on a single Call Stack; asynchronous Promises queue in the Microtask queue. In React, mutating state directly bypasses setter triggers, whereas immutable updates allow shallow comparison and Virtual DOM reconciliation.`,
         hint: 'Explain how Promises run before setTimeout in the Event Loop, and why React state must not be mutated in-place.'
       });
-    } else if (skillsLower.some(s => s.includes('go') || s.includes('golang') || s.includes('kubernetes') || s.includes('grpc') || s.includes('envoy')) || targetRole.toLowerCase().includes('cloud') || targetRole.toLowerCase().includes('devops')) {
-      const projRef = candidateProjects.find(p => /cloud|mesh|envoy|proxy|go|service/i.test(p.name))?.name || candidateProjects[0]?.name;
-      const projMention = projRef ? ` such as in your "${projRef}" project` : '';
+    } else if (skillsLower.some(s => s.includes('python')) || domainText.includes('python')) {
       questionOptions.push({
         category: 'Technical Fundamentals',
-        topic: 'Go Concurrency & Cloud Native Systems',
+        topic: 'Python Memory & Data Structures',
         difficulty: difficulty,
-        context: 'Verified Skill: Go / Cloud',
-        questionText: `You have listed Go on your resume${projMention}. How does Go's concurrency model (goroutines and channels) differ from traditional OS threads, and how do you use channels and context cancellation to prevent memory leaks?`,
-        expectedConcepts: ['goroutine lightweight stack vs os thread', 'channels communication over shared memory', 'context cancellation to prevent leaks', 'select statement and mutex synchronization'],
-        modelAnswer: `Goroutines have a small initial stack (2KB) managed by the Go runtime rather than 1-2MB OS threads. Communication across goroutines happens through typed channels. Using context.WithCancel or context.WithTimeout ensures downstream goroutines terminate cleanly upon cancellation, preventing goroutine leaks.`,
-        hint: 'Contrast lightweight 2KB goroutine stacks with OS threads, and explain context cancellation.'
-      });
-    } else if (skillsLower.some(s => s.includes('security') || s.includes('linux') || s.includes('kali') || s.includes('snort') || s.includes('wireshark')) || targetRole.toLowerCase().includes('security')) {
-      const projRef = candidateProjects.find(p => /intrusion|honeypot|snort|security/i.test(p.name))?.name || candidateProjects[0]?.name;
-      const projMention = projRef ? ` such as in your "${projRef}" project` : '';
-      questionOptions.push({
-        category: 'Technical Fundamentals',
-        topic: 'Network Security & Threat Analysis',
-        difficulty: difficulty,
-        context: 'Verified Skill: Security / Linux',
-        questionText: `You have listed Security tools and Linux on your resume${projMention}. How do you analyze packet captures in Wireshark or configure Snort IDS rules to detect malicious traffic, and what core steps do you follow to harden a Linux server against unauthorized access?`,
-        expectedConcepts: ['packet inspection wireshark syn flood', 'snort ids signature detection rules', 'linux permissions iptables and ssh hardening', 'incident triage and siem correlation'],
-        modelAnswer: `In Wireshark, I filter for anomalous SYN flags to identify denial of service attempts, and define custom Snort alert rules with signature patterns. On Linux, I disable root SSH login, enforce key-based auth, configure iptables or UFW firewalls, and audit logs with fail2ban and SIEM tooling.`,
-        hint: 'Mention Wireshark packet inspection, Snort IDS rules, and Linux firewall/SSH hardening.'
-      });
-    } else if (candidateSkills.length > 0) {
-      const skill = candidateSkills[0];
-      const projRef = candidateProjects[0]?.name ? ` such as in your "${candidateProjects[0].name}" project` : '';
-      questionOptions.push({
-        category: 'Technical Fundamentals',
-        topic: `${skill} Implementation & Concepts`,
-        difficulty: difficulty,
-        context: `Verified Skill: ${skill}`,
-        questionText: `You have listed ${skill} on your resume${projRef}. How have you applied ${skill} in your hands-on project implementations? Specifically, what core data structures or design patterns did you leverage, and what trade-offs did you consider?`,
-        expectedConcepts: [`${skill} practical application`, 'data structures or design patterns', 'performance trade-offs', 'debugging and validation'],
-        modelAnswer: `I used ${skill} to implement core system components, selecting appropriate data structures for low latency and separating concerns into modular services.`,
-        hint: `Detail specific libraries, patterns, and trade-offs when working with ${skill}.`
+        context: 'Domain: Python Development',
+        questionText: `Can you explain how Python manages memory, the difference between mutable and immutable types, and how the Global Interpreter Lock (GIL) affects concurrency?`,
+        expectedConcepts: ['mutable vs immutable types', 'reference counting and cyclic gc', 'gil restricts bytecodes to one thread', 'multiprocessing for cpu bound tasks'],
+        modelAnswer: `Mutable objects (lists, dicts) can be modified in place, while immutable types (strings, tuples) create new allocations. Python uses reference counting and cyclic GC. The GIL prevents concurrent native thread execution, making multiprocessing necessary for CPU tasks.`,
+        hint: 'Contrast lists vs tuples, explain reference counting GC, and describe how the GIL restricts threading.'
       });
     } else {
       questionOptions.push({

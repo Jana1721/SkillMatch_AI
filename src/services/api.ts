@@ -486,13 +486,26 @@ export const ApiService = {
     return res.json();
   },
 
-  async finishInteractiveInterview(sessionId: string) {
+  async finishInteractiveInterview(sessionId: string, reason?: string) {
     const res = await fetch('/api/interview/interactive/finish', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ sessionId })
+      body: JSON.stringify({ sessionId, reason })
     });
     if (!res.ok) throw new Error('Failed to finish interview');
+    return res.json();
+  },
+
+  async logTabSwitch(sessionId: string, eventNumber: number, maxEvents: number = 3) {
+    const res = await fetch('/api/interview/interactive/tab-switch', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ sessionId, eventNumber, maxEvents })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to record tab switch' }));
+      throw new Error(err.error || 'Failed to record tab switch');
+    }
     return res.json();
   },
 
