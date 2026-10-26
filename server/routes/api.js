@@ -2176,9 +2176,6 @@ router.post('/interview/interactive/finish', async (req, res) => {
       finalReport,
       isCompleted: true
     });
-      finalReport,
-      isCompleted: true
-    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
