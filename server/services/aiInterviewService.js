@@ -1610,6 +1610,151 @@ OUTPUT FORMAT: Return a valid JSON object matching this schema:
 }
 
 /**
+ * Helper: Generate domain-specific practical code/architecture example and simple explanation
+ */
+function getTopicExampleAndGuidance(topic = '', category = '', questionText = '') {
+  const t = topic.toLowerCase();
+  const q = questionText.toLowerCase();
+
+  if (t.includes('exception') || q.includes('checked') || q.includes('stack') || q.includes('heap')) {
+    return {
+      correctExplanation: 'In Java, Checked exceptions (subclasses of Exception excluding RuntimeException) are checked at compile-time and must be caught or declared. Unchecked exceptions (subclasses of RuntimeException) occur at runtime due to programming bugs. Memory-wise, primitive variables and active method call frames reside on the LIFO Stack, whereas dynamic objects and arrays are allocated on the Heap and reclaimed by the Garbage Collector.',
+      example: '// Checked vs Unchecked:\ntry {\n  new FileReader("config.json"); // IOException (Checked, compile-time)\n} catch (IOException e) {\n  log.error("File missing", e);\n}\nint[] arr = new int[2];\nint x = arr[5]; // ArrayIndexOutOfBoundsException (Unchecked, runtime)\n\n// Memory Model:\nUser u = new User("Alex"); // Reference "u" stored on Stack; actual User object allocated on Heap',
+      howToImprove: 'Structure your verbal explanation using: 1) The inheritance hierarchy (Exception vs RuntimeException), 2) Compile-time vs runtime enforcement, and 3) Memory lifetimes (Stack LIFO frames vs Heap Garbage Collection).',
+      simpleExplanation: 'The Stack is like a quick desk notepad where running functions jot down temporary variables; the Heap is the main warehouse where all created objects live until the Garbage Collector clears them.'
+    };
+  }
+
+  if (t.includes('hashmap') || t.includes('collection') || q.includes('hashcode') || q.includes('collision')) {
+    return {
+      correctExplanation: 'Java HashMap uses an array of buckets. When a key-value pair is inserted, it computes hash(key.hashCode()) to locate the bucket index. When different keys land in the same bucket (collision), they are chained in a linked list. In Java 8+, once a bucket reaches the TREEIFY_THRESHOLD of 8 elements and the table length >= 64, it converts to a Red-Black Tree, reducing worst-case lookup from O(n) to O(log n). For thread-safe operations, ConcurrentHashMap uses CAS and synchronized bucket-level locks.',
+      example: 'Map<String, String> cache = new HashMap<>();\ncache.put("user:101", "Alex"); // 1. hash("user:101") -> bucket index\n// 2. equals() verifies exact key match\n// 3. If bucket size >= 8 -> treeifies into TreeNode (Red-Black Tree)\n\n// Thread-safe alternative:\nMap<String, String> safeMap = new ConcurrentHashMap<>();',
+      howToImprove: 'Explain the internal mechanics step-by-step: hashing the key, computing the bucket index, chaining collisions with linked lists, treeification at 8 elements (Java 8+), and contrast with ConcurrentHashMap for thread safety.',
+      simpleExplanation: 'HashMap works like a sorted filing cabinet: it calculates a hash code to pick which drawer (bucket) to open, then checks equals() to find your exact folder inside.'
+    };
+  }
+
+  if (t.includes('security') || t.includes('owasp') || q.includes('sql injection') || q.includes('xss') || q.includes('tls')) {
+    return {
+      correctExplanation: 'SQL Injection occurs when untrusted input alters database SQL command structure; it is prevented using parameterized queries (PreparedStatements) and ORMs where input is strictly treated as literal data. Cross-Site Scripting (XSS) occurs when malicious scripts are injected into web pages viewed by users; it is defended using contextual output encoding, strict Content Security Policy (CSP) headers, and HttpOnly cookies. During a TLS handshake, asymmetric encryption (public/private key pairs) is used to authenticate the server and securely exchange a symmetric session key, after which fast symmetric encryption encrypts the application traffic.',
+      example: '// Prevent SQL Injection:\nString sql = "SELECT * FROM accounts WHERE email = ? AND active = ?";\nPreparedStatement ps = conn.prepareStatement(sql);\nps.setString(1, email); // Literal parameter, cannot modify SQL AST\nps.setBoolean(2, true);\n\n// Prevent XSS in HTML output:\nString safeHtml = HtmlUtils.htmlEscape(userInput);\n// Header: Content-Security-Policy: default-src \'self\';',
+      howToImprove: 'Define each vulnerability clearly, state the exact root cause (code/data mixing), describe the industry-standard remediation (Parameterized queries, CSP, contextual encoding), and articulate how TLS switches from asymmetric key exchange to symmetric data encryption.',
+      simpleExplanation: 'SQL injection tricks the database into running user text as commands; parameterized queries put user input in quotation marks so the database knows it is only text, not a command.'
+    };
+  }
+
+  if (t.includes('rest') || t.includes('api') || q.includes('http') || q.includes('endpoint')) {
+    return {
+      correctExplanation: 'RESTful architecture organizes web services around stateless resources identified by URIs and manipulated using standard HTTP verbs: GET (read, idempotent), POST (create, non-idempotent), PUT (replace, idempotent), PATCH (partial update), and DELETE (remove, idempotent). Responses use semantic HTTP status codes (200 OK, 201 Created, 400 Bad Request, 401 Unauthorized, 404 Not Found, 500 Server Error).',
+      example: 'POST /api/v1/orders HTTP/1.1\nContent-Type: application/json\nPayload: {"itemId": 94, "qty": 2}\n--> HTTP/1.1 201 Created\nLocation: /api/v1/orders/1084\n\nGET /api/v1/orders/1084 --> HTTP/1.1 200 OK',
+      howToImprove: 'Always emphasize resource-based naming (nouns, not verbs), HTTP method semantics (idempotency of GET/PUT/DELETE vs POST), and specific status codes (200, 201, 400, 404).',
+      simpleExplanation: 'REST is a standard set of rules for web services: instead of making up custom commands, programs use standard web verbs (GET to read, POST to create, DELETE to remove).'
+    };
+  }
+
+  if (t.includes('database') || t.includes('sql') || q.includes('index') || q.includes('acid') || q.includes('transaction')) {
+    return {
+      correctExplanation: 'ACID guarantees database reliability: Atomicity (all-or-nothing transactions), Consistency (invariants preserved), Isolation (concurrent transactions do not interfere), and Durability (committed data survives crashes via write-ahead logging). Database indexes (typically B-Trees) store sorted keys with row pointers, accelerating search queries from O(N) full-table scans to O(log N) lookups at the cost of additional storage and write overhead.',
+      example: '-- Add B-Tree composite index:\nCREATE INDEX idx_user_orders ON orders (user_id, created_at DESC);\n-- Query uses index range scan:\nSELECT * FROM orders WHERE user_id = 42 ORDER BY created_at DESC LIMIT 10;',
+      howToImprove: 'Define all four ACID letters with real-world banking/e-commerce examples and explain the performance trade-off of indexes: faster read queries versus slower writes and increased storage.',
+      simpleExplanation: 'A database index works like the alphabetical index at the back of a textbook: it lets the database jump straight to the right row instead of reading every single page.'
+    };
+  }
+
+  if (t.includes('react') || t.includes('javascript') || q.includes('event loop') || q.includes('hook') || q.includes('async')) {
+    return {
+      correctExplanation: 'JavaScript runs on a single-threaded event loop. Synchronous code executes on the Call Stack. Asynchronous tasks delegate to browser/Node WebAPIs; when complete, their callbacks enter the Microtask Queue (Promises, queueMicrotask) or Macrotask Queue (setTimeout, setInterval, I/O). The Event Loop prioritizes clearing all microtasks before executing the next macrotask. In React, reconciliation compares virtual DOM trees using Fiber architecture to schedule non-blocking updates.',
+      example: 'console.log("1"); // Call Stack\nsetTimeout(() => console.log("2"), 0); // Macrotask Queue\nPromise.resolve().then(() => console.log("3")); // Microtask Queue\nconsole.log("4"); // Call Stack\n// Output order: 1 -> 4 -> 3 -> 2',
+      howToImprove: 'Walk through execution order step-by-step: Call Stack -> Microtask Queue (Promises) -> Macrotask Queue (Timers), and explain how non-blocking I/O allows a single thread to handle high throughput.',
+      simpleExplanation: 'The event loop checks: if the main counter is empty, it first runs urgent microtasks (Promises), then serves scheduled tickets (setTimeout).'
+    };
+  }
+
+  if (category.includes('Behavioral') || category.includes('HR') || category.includes('Teamwork')) {
+    return {
+      correctExplanation: 'In professional engineering interviews, behavioral and situational questions assess accountability, conflict resolution, communication, and engineering trade-offs. The gold standard structure is the STAR method: Situation (context), Task (your specific goal), Action (the concrete steps you personally implemented), and Result (the measurable impact and lessons learned).',
+      example: 'STAR Example:\n• Situation: Our payment webhook timed out during peak holiday traffic.\n• Task: Prevent payment drop-offs and reduce API latency within 2 hours.\n• Action: I investigated slow queries, added an in-memory Redis cache with TTL, and implemented an exponential backoff retry queue.\n• Result: Error rate fell from 8.4% to 0.01%, saving $14,000 in transactions.',
+      howToImprove: 'Answer using the STAR framework. Quantify your actions and results (e.g., percentages, latencies, or team velocity) and explain what you learned or would do differently.',
+      simpleExplanation: 'Tell a structured story: explain the problem, what your personal responsibility was, what concrete actions you took, and the positive outcome.'
+    };
+  }
+
+  // General Software Engineering Fallback
+  return {
+    correctExplanation: `In professional software engineering, ${topic || 'this competency'} requires understanding the architectural design, trade-offs, internal mechanics, and real-world boundary conditions. High-caliber interview responses connect theoretical fundamentals to practical production implementation.`,
+    example: `// Clean Architectural Pattern:\n// 1. Controller / Route Layer: Validates incoming request schemas\n// 2. Service / Domain Layer: Enforces business logic and transactions\n// 3. Repository / Data Layer: Executes parameterized queries against database`,
+    howToImprove: 'State the core definition clearly, walk through the internal mechanics or lifecycle, and support your explanation with a concrete example from your technical projects.',
+    simpleExplanation: 'Explain what the concept does, why it exists, and how software systems use it to solve real-world problems.'
+  };
+}
+
+/**
+ * Call External LLM (Gemini / OpenAI) for Comprehensive Answer Evaluation
+ */
+async function evaluateAnswerWithLLM({
+  currentQuestion,
+  userAnswer,
+  sessionState,
+  attemptNumber
+}) {
+  if (!GEMINI_API_KEY && !OPENAI_API_KEY) {
+    return null;
+  }
+
+  const prompt = `EVALUATE THIS INTERVIEW RESPONSE:
+Question Category: ${currentQuestion.category}
+Question Topic: ${currentQuestion.topic}
+Question Text: "${currentQuestion.questionText}"
+Expected Key Concepts: ${JSON.stringify(currentQuestion.expectedConcepts || [])}
+Reference Model Answer: "${currentQuestion.modelAnswer || ''}"
+Candidate Background: Role=${sessionState.targetRole || 'Software Engineer'}, Domain=${sessionState.domain || 'Software Development'}, Level=${sessionState.experienceLevel || 'Intermediate'}
+Candidate Answer Transcript: "${userAnswer}"
+Attempt Number: ${attemptNumber}`;
+
+  const systemInstruction = `You are a principal technical interviewer and hiring committee bar-raiser for SkillMatch AI.
+Your task is to thoroughly and objectively evaluate a candidate's spoken interview answer against the question asked.
+
+MANDATORY JSON OUTPUT FORMAT:
+{
+  "result": "Correct" | "Partially Correct" | "Incorrect" | "Needs Clarification",
+  "classification": "Relevant and correct" | "Relevant but partially correct" | "Relevant but incorrect" | "Irrelevant or off-topic" | "Insufficient information to evaluate",
+  "whatYouGotRight": ["List 1-3 specific points candidate articulated accurately. If none, state: 'Attempted the question.'"],
+  "whatNeedsImprovement": ["List 1-3 specific omissions, inaccuracies, or misconceptions. If none, state: 'Your answer is technically sound and complete.'"],
+  "correctExplanation": "A reliable, direct, comprehensive explanation of the technical concept, algorithm, or methodology (2-4 sentences).",
+  "example": "A short practical code snippet, query, or architectural example illustrating the correct concept.",
+  "howToImprove": "Clear, practical verbal advice on how the candidate could structure and deliver a stronger interview response.",
+  "score": 0.0 to 10.0,
+  "scoreExplanation": "A 1-2 sentence justification for the awarded score based on accuracy, relevance, depth, and clarity.",
+  "improvedSampleAnswer": "A complete, natural, spoken-ready model answer directly answering the question suitable for saying aloud in an interview.",
+  "spokenFeedback": "A concise verbal summary (20-30 words) for the candidate: stating the verdict, acknowledging what was right, pointing out the key fix, and transitioning.",
+  "simpleExplanation": "A 1-2 sentence plain English, intuitive analogy/simple explanation for learning.",
+  "retryOpportunity": false
+}
+
+RULES:
+- Assess true technical meaning over exact keyword matching.
+- Accept valid alternative patterns, architectures, or naming conventions.
+- Do not agree with incorrect claims just to be polite.
+- If attempt 1 is off-topic or empty, set result="Needs Clarification", retryOpportunity=true, and spokenFeedback="Your answer does not fit this question. Please try answering the question asked."
+- NEVER invent facts the candidate did not mention.`;
+
+  try {
+    let result = null;
+    if (GEMINI_API_KEY) {
+      result = await callGeminiApi(prompt, systemInstruction);
+    } else if (OPENAI_API_KEY) {
+      result = await callOpenAiApi(prompt, systemInstruction);
+    }
+    if (result && result.result && result.classification) {
+      return result;
+    }
+  } catch (err) {
+    console.warn('[Diagnostic] [LLM Evaluation Error]:', err.message, 'Falling back to semantic reasoning engine.');
+  }
+  return null;
+}
+
+/**
  * Evaluate Candidate Spoken Answer against 10-Mark Rubric and Classify Relevance & Correctness.
  * Supports Single Retry Policy for Irrelevant/Off-Topic answers before advancing.
  */
@@ -1633,6 +1778,14 @@ export async function evaluateCandidateAnswerAndProgress({
   const words = trimmedAnswer.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
 
+  // 1. Attempt LLM Evaluation if External Model is Configured
+  const llmEval = await evaluateAnswerWithLLM({
+    currentQuestion,
+    userAnswer: trimmedAnswer,
+    sessionState,
+    attemptNumber
+  });
+
   const stopWords = new Set([
     'and', 'the', 'for', 'with', 'from', 'that', 'this', 'into', 'using', 'have', 'been', 'your',
     'such', 'also', 'some', 'when', 'what', 'which', 'where', 'how', 'each', 'more', 'over', 'than',
@@ -1649,13 +1802,38 @@ export async function evaluateCandidateAnswerAndProgress({
   const expected = currentQuestion.expectedConcepts || [];
   const matchedConcepts = [];
 
+  const stem = (w) => {
+    if (!w || w.length <= 3) return w;
+    if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
+    if (w.endsWith('ing')) return w.slice(0, -3);
+    if (w.endsWith('ed')) return w.slice(0, -2);
+    if (w.endsWith('es')) return w.slice(0, -2);
+    if (w.endsWith('s')) return w.slice(0, -1);
+    return w;
+  };
+
+  const stemmedAnswerWords = new Set(Array.from(answerWords).map(stem));
+
   expected.forEach(concept => {
-    const terms = concept
-      .toLowerCase()
+    const conceptLower = concept.toLowerCase();
+    if (lowerAnswer.includes(conceptLower)) {
+      matchedConcepts.push(concept);
+      return;
+    }
+
+    const terms = conceptLower
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
       .filter(t => t.length > 2 && !stopWords.has(t));
-    if (terms.length > 0 && terms.some(t => answerWords.has(t) || lowerAnswer.includes(t))) {
+    if (terms.length === 0) return;
+
+    const matchedTermsCount = terms.filter(t => {
+      const st = stem(t);
+      return answerWords.has(t) || stemmedAnswerWords.has(st) || Array.from(answerWords).some(aw => (aw.length > 3 && t.length > 3 && (aw.startsWith(t) || t.startsWith(aw))));
+    }).length;
+
+    const requiredMatches = terms.length <= 2 ? 1 : Math.max(2, Math.ceil(terms.length * 0.45));
+    if (matchedTermsCount >= requiredMatches) {
       matchedConcepts.push(concept);
     }
   });
@@ -1711,25 +1889,37 @@ export async function evaluateCandidateAnswerAndProgress({
   // Relevance: 0-2 | Correctness: 0-4 | Depth: 0-2 | Clarity: 0-2
   // --------------------------------------------------------------------------
   let classification = 'Relevant and correct';
+  let resultVerdict = 'Correct';
   let relevanceScore = 2.0;
   let correctnessScore = 3.5;
   let depthScore = 1.5;
   let clarityScore = 1.5;
 
-  if (!trimmedAnswer || wordCount < 3 || isDirectEvasion || isAudioFillerOrUnclear || answerWords.size === 0) {
+  if (llmEval) {
+    classification = llmEval.classification || 'Relevant and correct';
+    resultVerdict = llmEval.result || 'Correct';
+    const scoreVal = typeof llmEval.score === 'number' ? llmEval.score : 8.0;
+    relevanceScore = Math.min(2.0, (scoreVal / 10) * 2.0);
+    correctnessScore = Math.min(4.0, (scoreVal / 10) * 4.0);
+    depthScore = Math.min(2.0, (scoreVal / 10) * 2.0);
+    clarityScore = Math.min(2.0, (scoreVal / 10) * 2.0);
+  } else if (!trimmedAnswer || wordCount < 3 || isDirectEvasion || isAudioFillerOrUnclear || answerWords.size === 0) {
     classification = 'Insufficient information to evaluate';
+    resultVerdict = 'Needs Clarification';
     relevanceScore = 0.0;
     correctnessScore = 0.0;
     depthScore = 0.0;
     clarityScore = 0.0;
   } else if ((isDegreePercentageDistraction || isGeneralChatter || isNonTechnicalHobbies) && matchedConcepts.length === 0) {
     classification = 'Irrelevant or off-topic';
+    resultVerdict = 'Needs Clarification';
     relevanceScore = 0.0;
     correctnessScore = 0.0;
     depthScore = 0.0;
     clarityScore = Math.min(1.0, wordCount > 5 ? 1.0 : 0.0);
   } else if (matchedDomainKeywords.length === 0 && matchedConcepts.length === 0 && matchedGeneralTech.length === 0 && matchedSkillsOrProjects.length === 0 && wordCount >= 6) {
     classification = 'Irrelevant or off-topic';
+    resultVerdict = 'Needs Clarification';
     relevanceScore = 0.0;
     correctnessScore = 0.0;
     depthScore = 0.0;
@@ -1741,28 +1931,32 @@ export async function evaluateCandidateAnswerAndProgress({
 
     // Check for technical misconceptions
     const hasMisconception =
-      /keys cannot be hashed|collisions overwrite|without any (bucket|chaining)|storing elements sequentially in a (binary|fixed)|hashmap is synchronized|hashtable is not synchronized|get request modifies database|post request cannot have body|python has no memory management|gil allows true parallelism|http is stateful|tcp is connectionless|udp is reliable|abstract class cannot have methods|interfaces cannot have|private variables can be accessed directly/i.test(lowerAnswer);
+      /keys cannot be hashed|collisions overwrite|without any (bucket|chaining)|storing elements sequentially in a (binary|fixed)|hashmap is synchronized|hashtable is not synchronized|get request modifies database|post request cannot have body|python has no memory management|gil allows true parallelism|http is stateful|tcp is connectionless|udp is reliable|abstract class cannot have methods|interfaces cannot have|private variables can be accessed directly|array\s*\[.*length\s*-\s*2\]|length\s*-\s*2/i.test(lowerAnswer);
 
     if (hasMisconception) {
       classification = 'Relevant but incorrect';
+      resultVerdict = 'Incorrect';
       relevanceScore = 2.0;
       correctnessScore = 1.0;
       depthScore = 0.5;
       clarityScore = wordCount >= 10 ? 1.5 : 1.0;
-    } else if (conceptCoverage >= 0.65 || (matchedConcepts.length >= 2 && wordCount >= 8)) {
+    } else if (conceptCoverage >= 0.60 || (expected.length <= 2 && matchedConcepts.length >= 1 && wordCount >= 10)) {
       classification = 'Relevant and correct';
+      resultVerdict = 'Correct';
       relevanceScore = 2.0;
       correctnessScore = wordCount >= 25 ? 4.0 : 3.5;
       depthScore = (wordCount >= 25 || lowerAnswer.includes('trade-off') || lowerAnswer.includes('because') || lowerAnswer.includes('for example')) ? 2.0 : 1.5;
       clarityScore = wordCount >= 10 ? 2.0 : 1.5;
-    } else if (conceptCoverage >= 0.25 || matchedDomainKeywords.length >= 2) {
+    } else if (conceptCoverage >= 0.20 || matchedConcepts.length >= 1 || matchedDomainKeywords.length >= 2) {
       classification = 'Relevant but partially correct';
+      resultVerdict = 'Partially Correct';
       relevanceScore = 2.0;
       correctnessScore = 2.5;
       depthScore = wordCount >= 20 ? 1.5 : 1.0;
       clarityScore = wordCount >= 8 ? 1.5 : 1.0;
     } else {
       classification = 'Partially relevant';
+      resultVerdict = 'Partially Correct';
       relevanceScore = 1.0;
       correctnessScore = 2.0;
       depthScore = 1.0;
@@ -1771,7 +1965,9 @@ export async function evaluateCandidateAnswerAndProgress({
   }
 
   // Calculate awarded marks out of 10
-  const awardedMarks = Math.min(10.0, Math.max(0.0, Math.round((relevanceScore + correctnessScore + depthScore + clarityScore) * 10) / 10));
+  const awardedMarks = llmEval && typeof llmEval.score === 'number'
+    ? Math.min(10.0, Math.max(0.0, Math.round(llmEval.score * 10) / 10))
+    : Math.min(10.0, Math.max(0.0, Math.round((relevanceScore + correctnessScore + depthScore + clarityScore) * 10) / 10));
   const overallScore = Math.round(awardedMarks * 10); // 0-100 scale
 
   const marksBreakdown = {
@@ -1784,17 +1980,81 @@ export async function evaluateCandidateAnswerAndProgress({
   };
 
   const missingConcepts = expected.filter(c => !matchedConcepts.includes(c));
-  const whatYouDidWell = matchedConcepts.length > 0
-    ? [`Demonstrated accurate understanding of: ${matchedConcepts.slice(0, 2).join(' and ')}.`]
-    : ['Participated actively and maintained a professional communication tone.'];
 
-  if (wordCount >= 25 && classification === 'Relevant and correct') {
-    whatYouDidWell.push('Supported your answer with structured technical mechanics and implementation context.');
+  // Synthesize domain guidance & practical examples
+  const guidance = getTopicExampleAndGuidance(currentQuestion.topic, currentQuestion.category, currentQuestion.questionText);
+
+  // 7-Part Feedback Construction
+  let whatYouGotRight = [];
+  let whatNeedsImprovement = [];
+  let correctExplanation = guidance.correctExplanation;
+  let practicalExample = guidance.example;
+  let howToImprove = guidance.howToImprove;
+  let simpleExplanation = guidance.simpleExplanation;
+  let improvedSampleAnswer = currentQuestion.modelAnswer || guidance.correctExplanation;
+
+  if (llmEval) {
+    if (Array.isArray(llmEval.whatYouGotRight) && llmEval.whatYouGotRight.length > 0) {
+      whatYouGotRight = llmEval.whatYouGotRight;
+    }
+    if (Array.isArray(llmEval.whatNeedsImprovement) && llmEval.whatNeedsImprovement.length > 0) {
+      whatNeedsImprovement = llmEval.whatNeedsImprovement;
+    }
+    if (llmEval.correctExplanation) correctExplanation = llmEval.correctExplanation;
+    if (llmEval.example) practicalExample = llmEval.example;
+    if (llmEval.howToImprove) howToImprove = llmEval.howToImprove;
+    if (llmEval.improvedSampleAnswer) improvedSampleAnswer = llmEval.improvedSampleAnswer;
+    if (llmEval.simpleExplanation) simpleExplanation = llmEval.simpleExplanation;
   }
 
-  const whatYouMissed = missingConcepts.length > 0
-    ? missingConcepts
-    : (awardedMarks < 8 ? [`Deepen discussion of low-level trade-offs and edge-case handling for ${currentQuestion.topic}.`] : []);
+  // Fallback high-precision synthesis if LLM was unavailable or arrays are empty
+  if (whatYouGotRight.length === 0) {
+    if (matchedConcepts.length > 0) {
+      whatYouGotRight = matchedConcepts.map(c => `Accurately articulated the core concept of "${c}".`);
+    } else if (resultVerdict === 'Correct' || resultVerdict === 'Partially Correct') {
+      whatYouGotRight = [`Demonstrated foundational familiarity with ${currentQuestion.topic}.`];
+    } else {
+      whatYouGotRight = ['Participated actively and attempted the question in a professional tone.'];
+    }
+    if (wordCount >= 25 && resultVerdict === 'Correct') {
+      whatYouGotRight.push('Supported your answer with structured technical mechanics and context.');
+    }
+  }
+
+  if (whatNeedsImprovement.length === 0) {
+    if (classification === 'Irrelevant or off-topic') {
+      whatNeedsImprovement = [
+        'The answer discussed unrelated topics instead of addressing the question prompt.',
+        `Focus directly on ${currentQuestion.topic} and explain the technical principles asked.`
+      ];
+    } else if (classification === 'Relevant but incorrect') {
+      whatNeedsImprovement = [
+        'Contained a technical misconception regarding internal execution mechanics.',
+        `Omitted key concepts: ${missingConcepts.slice(0, 3).join(', ') || 'underlying system trade-offs'}.`
+      ];
+    } else if (missingConcepts.length > 0) {
+      whatNeedsImprovement = missingConcepts.map(c => `Omitted key concept: "${c}".`);
+    } else if (awardedMarks < 8.0) {
+      whatNeedsImprovement = [`Deepen discussion of low-level trade-offs, edge-case handling, or performance characteristics for ${currentQuestion.topic}.`];
+    } else {
+      whatNeedsImprovement = ['Your response is technically sound and covers the key principles accurately.'];
+    }
+  }
+
+  const scoreExplanation = llmEval?.scoreExplanation || (
+    classification === 'Relevant and correct'
+      ? `Strong response awarding ${awardedMarks}/10. Addressed core concepts with appropriate technical structure.`
+      : classification === 'Relevant but partially correct'
+      ? `Solid effort awarding ${awardedMarks}/10. Captured foundational aspects but missed: ${missingConcepts.slice(0, 2).join(' and ') || 'specific trade-offs'}.`
+      : classification === 'Relevant but incorrect'
+      ? `Awarded ${awardedMarks}/10 due to conceptual inaccuracies in system mechanics.`
+      : `Awarded ${awardedMarks}/10 as the response did not address the required question prompt.`
+  );
+
+  // Backward-compatible alias properties for marksheet & older components
+  const whatYouDidWell = whatYouGotRight;
+  const whatYouMissed = whatNeedsImprovement;
+  const betterAnswer = improvedSampleAnswer;
 
   // --------------------------------------------------------------------------
   // HANDLE IRRELEVANT ANSWERS & SINGLE-RETRY POLICY
@@ -1804,13 +2064,12 @@ export async function evaluateCandidateAnswerAndProgress({
 
   if (attemptNumber === 1 && (classification === 'Irrelevant or off-topic' || classification === 'Insufficient information to evaluate')) {
     retryOpportunity = true;
-    if (classification === 'Irrelevant or off-topic' || classification === 'Insufficient information to evaluate') {
-      spokenFeedback = 'Your answer does not fit this question. Please try answering the question asked.';
-    }
+    spokenFeedback = 'Your answer does not fit this question. Please try answering the question asked.';
 
     const attemptRecord = {
       attemptNumber: 1,
       userAnswer: trimmedAnswer,
+      result: 'Needs Clarification',
       classification,
       awardedMarks,
       maxMarks: 10,
@@ -1821,6 +2080,8 @@ export async function evaluateCandidateAnswerAndProgress({
     sessionState.currentQuestionAttempts.push(attemptRecord);
 
     const evaluation = {
+      result: 'Needs Clarification',
+      classification,
       accuracy: correctnessScore * 2.5,
       relevance: relevanceScore * 5,
       completeness: depthScore * 5,
@@ -1830,14 +2091,21 @@ export async function evaluateCandidateAnswerAndProgress({
       awardedMarks,
       maxMarks: 10,
       marksBreakdown,
-      classification,
       isRetryOpportunity: true,
       retryAttemptNumber: 1,
       spokenFeedback,
       conciseFeedback: spokenFeedback,
+      scoreExplanation,
+      whatYouGotRight,
+      whatNeedsImprovement,
       whatYouDidWell,
       whatYouMissed,
-      betterAnswer: currentQuestion.modelAnswer || 'Provide a structured, step-by-step breakdown supported by your project experience.'
+      correctExplanation,
+      example: practicalExample,
+      howToImprove,
+      simpleExplanation,
+      improvedSampleAnswer,
+      betterAnswer
     };
 
     return {
@@ -1857,10 +2125,12 @@ export async function evaluateCandidateAnswerAndProgress({
   // --------------------------------------------------------------------------
   // FINALIZE TURN (RELEVANT ANSWER OR FINAL RETRY ATTEMPT)
   // --------------------------------------------------------------------------
-  if (attemptNumber >= 2 && (classification === 'Irrelevant or off-topic' || classification === 'Insufficient information to evaluate')) {
+  if (llmEval?.spokenFeedback) {
+    spokenFeedback = llmEval.spokenFeedback;
+  } else if (attemptNumber >= 2 && (classification === 'Irrelevant or off-topic' || classification === 'Insufficient information to evaluate')) {
     spokenFeedback = `Thank you for your response. There appears to be a misunderstanding of this concept. Let's continue, and you can review this topic in your final marksheet.`;
   } else if (classification === 'Relevant but partially correct') {
-    spokenFeedback = `Your answer covers part of the concept, but there are a few important details missing. Can you keep that in mind as we continue to the next question?`;
+    spokenFeedback = `Partially correct. You covered ${matchedConcepts.slice(0, 1).join('') || 'the foundational points'} well, but missed ${missingConcepts.slice(0, 1).join('') || 'important implementation details'}. Review the feedback card on your screen.`;
   } else if (classification === 'Relevant but incorrect') {
     spokenFeedback = `Thank you for your response. There appears to be a misunderstanding of this concept. Let's continue, and you can review this topic in your final marksheet.`;
   } else {
@@ -1871,6 +2141,7 @@ export async function evaluateCandidateAnswerAndProgress({
   const finalAttemptRecord = {
     attemptNumber,
     userAnswer: trimmedAnswer,
+    result: resultVerdict,
     classification,
     awardedMarks,
     maxMarks: 10,
@@ -1892,19 +2163,13 @@ export async function evaluateCandidateAnswerAndProgress({
       : classification === 'Relevant but incorrect'
       ? `The explanation contained conceptual inaccuracies or inverted technical principles.`
       : `The response provided a surface-level definition without explaining internal data structures or practical implementation trade-offs.`,
-    correctConcept: currentQuestion.modelAnswer || `Accurately articulate the underlying mechanics, data structures, and trade-offs of ${currentQuestion.topic}.`,
-    improvementExample: `In interviews, state the direct definition, explain the internal mechanics (e.g., memory management, thread-safety, or time complexity), and connect it to a practical example from your project experience.`
+    correctConcept: currentQuestion.modelAnswer || correctExplanation,
+    improvementExample: howToImprove
   } : null;
 
-  const scoreExplanation = classification === 'Relevant and correct'
-    ? `Strong response awarding ${awardedMarks}/10. Addressed core concepts with appropriate technical structure.`
-    : classification === 'Relevant but partially correct'
-    ? `Solid effort awarding ${awardedMarks}/10. Captured foundational aspects but missed: ${missingConcepts.slice(0, 2).join(' and ') || 'specific trade-offs'}.`
-    : classification === 'Relevant but incorrect'
-    ? `Awarded ${awardedMarks}/10 due to conceptual inaccuracies in system mechanics.`
-    : `Awarded ${awardedMarks}/10 as the response did not address the required question prompt.`;
-
   const evaluation = {
+    result: resultVerdict,
+    classification,
     accuracy: Math.round(correctnessScore * 2.5),
     relevance: Math.round(relevanceScore * 5),
     completeness: Math.round(depthScore * 5),
@@ -1914,14 +2179,20 @@ export async function evaluateCandidateAnswerAndProgress({
     awardedMarks,
     maxMarks: 10,
     marksBreakdown,
-    classification,
     isRetryOpportunity: false,
     spokenFeedback,
     conciseFeedback: spokenFeedback,
     scoreExplanation,
+    whatYouGotRight,
+    whatNeedsImprovement,
     whatYouDidWell,
     whatYouMissed,
-    betterAnswer: currentQuestion.modelAnswer || 'Provide a structured, step-by-step breakdown supported by your project experience.',
+    correctExplanation,
+    example: practicalExample,
+    howToImprove,
+    simpleExplanation,
+    improvedSampleAnswer,
+    betterAnswer,
     mistakeAnalysis
   };
 

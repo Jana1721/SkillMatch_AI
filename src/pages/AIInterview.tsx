@@ -42,7 +42,9 @@ import {
   Camera,
   CameraOff,
   Video,
-  VideoOff
+  VideoOff,
+  Lightbulb,
+  Code
 } from 'lucide-react';
 import { Card } from '../components/common/Card';
 
@@ -201,6 +203,24 @@ export const AIInterview: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
   const turnStartTimeRef = useRef<number>(Date.now());
+  const isRecordingRef = useRef(false);
+  const isMutedRef = useRef(false);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const ttsSafetyTimeoutRef = useRef<any>(null);
+
+  // Live Answer Evaluation & Candidate Guidance State
+  const [latestEvaluation, setLatestEvaluation] = useState<any | null>(null);
+  const [isGuidanceExpanded, setIsGuidanceExpanded] = useState(true);
+  const [showSimplifiedExplanation, setShowSimplifiedExplanation] = useState(false);
+
+  // Synchronize recording & mute state refs for SpeechRecognition event handlers
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   // Synchronize candidate resume on mount and listen to updates
   useEffect(() => {
@@ -341,11 +361,15 @@ export const AIInterview: React.FC = () => {
       };
 
       recognition.onend = () => {
-        // Auto restart only if still actively recording and not muted
-        if (isRecording && !isMuted) {
-          try {
-            recognition.start();
-          } catch (e) {}
+        // Auto restart smoothly if still actively recording and not muted
+        if (isRecordingRef.current && !isMutedRef.current) {
+          setTimeout(() => {
+            if (isRecordingRef.current && !isMutedRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (e) {}
+            }
+          }, 150);
         }
       };
 
@@ -365,15 +389,10 @@ export const AIInterview: React.FC = () => {
         window.speechSynthesis.cancel();
       }
       if (timerRef.current) clearInterval(timerRef.current);
-      if (recordedAudioUrl) {
-        URL.revokeObjectURL(recordedAudioUrl);
-      }
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      if (ttsSafetyTimeoutRef.current) clearTimeout(ttsSafetyTimeoutRef.current);
       stopAllMediaTracks();
     };
-  }, [isRecording, isMuted]);
+  }, []);
 
   // Stop all media tracks (camera & microphone)
   const stopAllMediaTracks = () => {
@@ -653,6 +672,11 @@ export const AIInterview: React.FC = () => {
       return;
     }
 
+    if (ttsSafetyTimeoutRef.current) {
+      clearTimeout(ttsSafetyTimeoutRef.current);
+      ttsSafetyTimeoutRef.current = null;
+    }
+
     const cleanText = text.trim();
     setCurrentAiSpokenText(cleanText);
 
@@ -681,6 +705,9 @@ export const AIInterview: React.FC = () => {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(cleanText);
+      currentUtteranceRef.current = utterance;
+      (window as any)._currentAiUtterance = utterance;
+
       const voices = window.speechSynthesis.getVoices();
       const naturalVoice = voices.find(
         (v) =>
@@ -700,7 +727,11 @@ export const AIInterview: React.FC = () => {
       setInterviewState('AI Speaking');
       setStateMessage('AI Interviewer is speaking aloud...');
 
-      utterance.onend = () => {
+      const handleSpeechDone = () => {
+        if (ttsSafetyTimeoutRef.current) {
+          clearTimeout(ttsSafetyTimeoutRef.current);
+          ttsSafetyTimeoutRef.current = null;
+        }
         setIsTtsSpeaking(false);
         if (onFinished) {
           onFinished();
@@ -709,15 +740,18 @@ export const AIInterview: React.FC = () => {
         }
       };
 
+      utterance.onend = handleSpeechDone;
       utterance.onerror = (e) => {
         console.warn('Speech synthesis notice:', e);
-        setIsTtsSpeaking(false);
-        if (onFinished) {
-          onFinished();
-        } else {
-          startRecordingAudio();
-        }
+        handleSpeechDone();
       };
+
+      // Chromium Garbage Collection safety timeout: ensure speech completes even if GC drops utterance
+      const maxSpeechDurationMs = Math.max(4000, cleanText.length * 85);
+      ttsSafetyTimeoutRef.current = setTimeout(() => {
+        console.log('[Diagnostic] TTS speech duration reached, transitioning to recording.');
+        handleSpeechDone();
+      }, maxSpeechDurationMs);
 
       window.speechSynthesis.speak(utterance);
     } catch (err) {
@@ -740,8 +774,15 @@ export const AIInterview: React.FC = () => {
     setHasRecordedAnswer(false);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
+      let stream = hardwareStream;
+      const hasLiveAudio = stream && stream.getAudioTracks().some((t) => t.readyState === 'live');
+      if (!hasLiveAudio) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+      } else {
+        mediaStreamRef.current = stream;
+      }
+
       setMicPermission('granted');
       setMicSupported(true);
 
@@ -771,6 +812,7 @@ export const AIInterview: React.FC = () => {
       };
 
       mediaRecorder.start(250);
+      isRecordingRef.current = true;
       setIsRecording(true);
       setInterviewState('Listening');
       setStateMessage('Listening to your spoken answer... Speak naturally into your microphone.');
@@ -780,10 +822,13 @@ export const AIInterview: React.FC = () => {
       if (recognitionRef.current) {
         try {
           recognitionRef.current.start();
-        } catch (e) {}
+        } catch (e) {
+          console.warn('Speech recognition start notice:', e);
+        }
       }
     } catch (err: any) {
       console.error('[Microphone Access Error]', err);
+      isRecordingRef.current = false;
       setIsRecording(false);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setMicPermission('denied');
@@ -800,13 +845,15 @@ export const AIInterview: React.FC = () => {
 
   // Stop Voice Recording
   const stopRecordingAudio = () => {
+    isRecordingRef.current = false;
     setIsRecording(false);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
       } catch (e) {}
     }
-    if (mediaStreamRef.current) {
+    // Only stop tracks if they were created separately and NOT part of the persistent hardwareStream!
+    if (mediaStreamRef.current && mediaStreamRef.current !== hardwareStream) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
     }
@@ -1040,6 +1087,30 @@ export const AIInterview: React.FC = () => {
           evaluation: res.evaluation
         };
         setTurns((prev) => [...prev, newTurn]);
+        setLatestEvaluation(res.evaluation);
+        setIsGuidanceExpanded(true);
+        setShowSimplifiedExplanation(false);
+
+        // Record AI evaluation in live chat transcript
+        const verdictTag = res.evaluation?.result || (res.evaluation?.awardedMarks >= 8 ? 'Correct' : res.evaluation?.awardedMarks >= 5 ? 'Partially Correct' : 'Incorrect');
+        const scoreStr = res.evaluation?.awardedMarks !== undefined ? `${res.evaluation.awardedMarks}/10` : '';
+
+        const aiFeedbackTranscript = `[Evaluation: ${verdictTag} ${scoreStr ? `(${scoreStr})` : ''}]\n\n` +
+          (res.evaluation?.whatYouGotRight?.length ? `✓ What You Got Right:\n${res.evaluation.whatYouGotRight.map((p: string) => `  • ${p}`).join('\n')}\n\n` : '') +
+          (res.evaluation?.whatNeedsImprovement?.length ? `⚠ What Needs Improvement:\n${res.evaluation.whatNeedsImprovement.map((m: string) => `  • ${m}`).join('\n')}\n\n` : '') +
+          (res.evaluation?.correctExplanation ? `📖 Correct Understanding:\n${res.evaluation.correctExplanation}\n\n` : '') +
+          (res.evaluation?.improvedSampleAnswer ? `💡 Model Answer:\n"${res.evaluation.improvedSampleAnswer}"\n\n` : '') +
+          (res.evaluation?.spokenFeedback || '');
+
+        setConversationTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai-eval-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            role: 'ai',
+            content: aiFeedbackTranscript,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
 
         if (res.isCompleted) {
           // Interview completed -> Section 6 Marksheet
@@ -2000,6 +2071,164 @@ export const AIInterview: React.FC = () => {
                       controls
                       className="w-full mt-1 rounded-xl"
                     />
+                  </div>
+                )}
+
+                {/* Live Answer Evaluation & Candidate Guidance Card */}
+                {latestEvaluation && interviewState !== 'Introduction' && (
+                  <div className="mt-6 max-w-3xl mx-auto bg-slate-900/95 border border-indigo-500/40 rounded-2xl p-4 sm:p-5 text-left shadow-2xl backdrop-blur-md space-y-3.5 animate-in fade-in zoom-in-95">
+                    {/* Header: Result Badge + Score + Collapse Button */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+                          latestEvaluation.result === 'Correct' || latestEvaluation.classification === 'Relevant and correct'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : latestEvaluation.result === 'Partially Correct' || latestEvaluation.classification?.includes('partial')
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : latestEvaluation.result === 'Incorrect' || latestEvaluation.classification?.includes('incorrect')
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                        }`}>
+                          {latestEvaluation.result === 'Correct' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                          <span>Result: {latestEvaluation.result || latestEvaluation.classification}</span>
+                        </span>
+
+                        {latestEvaluation.awardedMarks !== undefined && (
+                          <span className="text-xs font-bold text-slate-300 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
+                            Score: <strong className="text-white">{latestEvaluation.awardedMarks}/10</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowSimplifiedExplanation(!showSimplifiedExplanation)}
+                          className="text-[11px] font-semibold text-indigo-300 hover:text-white px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Lightbulb className="w-3 h-3 text-indigo-400" />
+                          <span>{showSimplifiedExplanation ? 'Hide Simple Concept' : 'Explain It Simply'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsGuidanceExpanded(!isGuidanceExpanded)}
+                          className="text-slate-400 hover:text-white text-xs p-1 cursor-pointer"
+                          title={isGuidanceExpanded ? 'Collapse Guidance' : 'Expand Guidance'}
+                        >
+                          {isGuidanceExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Simplified Concept Box (If toggled) */}
+                    {showSimplifiedExplanation && (latestEvaluation.simpleExplanation || latestEvaluation.correctExplanation) && (
+                      <div className="p-3 bg-indigo-950/40 border border-indigo-500/40 rounded-xl text-xs text-indigo-200 space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-300">
+                          <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Intuitive Simple Concept:</span>
+                        </div>
+                        <p className="leading-relaxed">
+                          {latestEvaluation.simpleExplanation || latestEvaluation.correctExplanation}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Expanded 7-Part Detailed Breakdown */}
+                    {isGuidanceExpanded && (
+                      <div className="space-y-3 pt-1 text-xs text-slate-300 leading-relaxed">
+                        {/* Score Justification */}
+                        {latestEvaluation.scoreExplanation && (
+                          <p className="text-slate-300 italic bg-white/5 p-2 rounded-lg border border-white/5">
+                            <strong>Evaluation Justification:</strong> {latestEvaluation.scoreExplanation}
+                          </p>
+                        )}
+
+                        {/* 1. What You Got Right & 2. What Needs Improvement */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="p-3 rounded-xl bg-emerald-950/25 border border-emerald-500/30 space-y-1.5">
+                            <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>What You Got Right</span>
+                            </span>
+                            <ul className="space-y-1">
+                              {(latestEvaluation.whatYouGotRight || latestEvaluation.whatYouDidWell || ['Attempted the question with professional delivery.']).map((pt: string, idx: number) => (
+                                <li key={idx} className="text-emerald-100 flex items-start gap-1.5">
+                                  <span className="text-emerald-400 shrink-0">•</span>
+                                  <span>{pt}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-amber-950/25 border border-amber-500/30 space-y-1.5">
+                            <span className="font-bold text-amber-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                              <span>What Needs Improvement</span>
+                            </span>
+                            <ul className="space-y-1">
+                              {(latestEvaluation.whatNeedsImprovement || latestEvaluation.whatYouMissed || ['No critical gaps identified; answer is technically sound.']).map((pt: string, idx: number) => (
+                                <li key={idx} className="text-amber-100 flex items-start gap-1.5">
+                                  <span className="text-amber-400 shrink-0">•</span>
+                                  <span>{pt}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {/* 3. Correct Technical Explanation */}
+                        {latestEvaluation.correctExplanation && (
+                          <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 space-y-1">
+                            <span className="font-bold text-indigo-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Correct Technical Understanding</span>
+                            </span>
+                            <p className="text-slate-200 leading-relaxed font-normal">
+                              {latestEvaluation.correctExplanation}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* 4. Practical Implementation Example */}
+                        {latestEvaluation.example && (
+                          <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1.5 font-mono text-[11px]">
+                            <span className="font-bold font-sans text-indigo-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                              <Code className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Practical Example / Pattern</span>
+                            </span>
+                            <pre className="text-emerald-300 bg-slate-900/90 p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                              {latestEvaluation.example}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* 5. How to Improve Your Answer */}
+                        {latestEvaluation.howToImprove && (
+                          <div className="p-3 bg-indigo-950/20 border border-indigo-500/20 rounded-xl space-y-1">
+                            <span className="font-bold text-indigo-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                              <span>How to Deliver a Stronger Answer in an Interview</span>
+                            </span>
+                            <p className="text-indigo-100 leading-relaxed">
+                              {latestEvaluation.howToImprove}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* 6. Improved Model Answer */}
+                        {(latestEvaluation.improvedSampleAnswer || latestEvaluation.betterAnswer) && (
+                          <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-xl space-y-1">
+                            <span className="font-bold text-emerald-400 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Improved Interview Model Answer</span>
+                            </span>
+                            <p className="text-emerald-100 italic leading-relaxed">
+                              "{latestEvaluation.improvedSampleAnswer || latestEvaluation.betterAnswer}"
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
