@@ -158,6 +158,28 @@ export const AIInterview: React.FC = () => {
           if (saved && saved.parsedData) {
             setActiveResume(saved);
             if (saved.targetRole) setTargetRole(saved.targetRole);
+          } else if (user?.id === 'user-demo' || user?.email === 'demo@skillmatch.ai' || user?.name === 'Demo Candidate') {
+            const demoDefaultResume = {
+              id: 'res-demo-default',
+              fileName: 'Demo_Candidate_Resume.pdf',
+              targetRole: 'Java Developer',
+              atsScore: 78,
+              parsedData: {
+                contact: { name: 'Demo Candidate', email: 'demo@skillmatch.ai' },
+                skills: { allSkillsFound: ['Java', 'Spring Boot', 'MySQL', 'REST APIs', 'Git', 'Docker'] },
+                projects: [
+                  {
+                    name: 'E-Commerce Microservices Engine',
+                    technologies: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
+                    description: 'Developed microservices for order processing and inventory control.'
+                  }
+                ],
+                education: [{ degree: 'B.Tech Computer Science & Engineering', college: 'Karpagam College of Engineering' }]
+              }
+            };
+            setActiveResume(demoDefaultResume);
+            StorageService.setResumeAnalysis(demoDefaultResume as any);
+            setTargetRole('Java Developer');
           } else {
             setActiveResume(null);
           }
@@ -509,10 +531,33 @@ export const AIInterview: React.FC = () => {
 
   // 6. Action: Start Interview Session Grounded in Candidate's Own Resume
   const handleStartInterview = async () => {
-    if (!activeResume || !activeResume.parsedData) {
-      showToast('Please upload your resume first before starting the AI Voice Interview.', 'error');
-      resumeFileInputRef.current?.click();
-      return;
+    let resumeToUse = activeResume;
+    if (!resumeToUse || !resumeToUse.parsedData) {
+      if (user?.id === 'user-demo' || user?.email === 'demo@skillmatch.ai' || user?.name === 'Demo Candidate') {
+        resumeToUse = {
+          id: 'res-demo-default',
+          fileName: 'Demo_Candidate_Resume.pdf',
+          targetRole: 'Java Developer',
+          atsScore: 78,
+          parsedData: {
+            contact: { name: 'Demo Candidate', email: 'demo@skillmatch.ai' },
+            skills: { allSkillsFound: ['Java', 'Spring Boot', 'MySQL', 'REST APIs', 'Git', 'Docker'] },
+            projects: [
+              {
+                name: 'E-Commerce Microservices Engine',
+                technologies: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
+                description: 'Developed microservices for order processing and inventory control.'
+              }
+            ],
+            education: [{ degree: 'B.Tech Computer Science & Engineering', college: 'Karpagam College of Engineering' }]
+          }
+        };
+        setActiveResume(resumeToUse);
+      } else {
+        showToast('Please upload your resume first before starting the AI Voice Interview.', 'error');
+        resumeFileInputRef.current?.click();
+        return;
+      }
     }
 
     setInterviewState('Connecting');
@@ -531,7 +576,8 @@ export const AIInterview: React.FC = () => {
         experienceLevel,
         difficulty,
         totalQuestions,
-        resumeId: activeResume.id || undefined
+        resumeId: resumeToUse?.id || undefined,
+        resumeData: resumeToUse || undefined
       });
 
       if (res.success && res.currentQuestion) {

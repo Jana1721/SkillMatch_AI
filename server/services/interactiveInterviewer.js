@@ -95,7 +95,8 @@ export async function startInterviewSession({
   try {
     resumeContext = await getResumeContextForCandidate({
       userId,
-      resumeId: resumeId || resumeData?.id || null
+      resumeId: resumeId || resumeData?.id || null,
+      resumeData
     });
   } catch (err) {
     console.error(`[Diagnostic] [Interview Start Failed] userId=${userId} error=${err.message}`);

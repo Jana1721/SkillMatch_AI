@@ -2015,12 +2015,14 @@ router.post('/interview/interactive/start', async (req, res) => {
       difficulty = 'Intermediate',
       totalQuestions = 5,
       focusTopics = [],
-      resumeId = null
+      resumeId = null,
+      resumeData = null
     } = req.body;
 
     const sessionInit = await startInterviewSession({
       userId: candidateId,
       resumeId,
+      resumeData,
       interviewType,
       targetRole,
       experienceLevel,

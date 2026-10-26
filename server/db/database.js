@@ -740,6 +740,95 @@ export async function initDatabase() {
     await dbRun(`UPDATE users SET credential_id = 'KCE-2024-2024CS01', roll_number = '2024CS01', department = 'Computer Science & Engineering', phone = '+91 9876543210', role = 'student' WHERE id = ?`, [existingDemo.id]);
   }
 
+  // Seed default demo resume for user-demo if not present
+  const existingDemoResume = await dbGet(`SELECT * FROM resumes WHERE user_id = ?`, ['user-demo']);
+  if (!existingDemoResume) {
+    const demoRawText = `
+Name: Demo Candidate
+Email: demo@skillmatch.ai
+Phone: +91 9876543210
+College: Karpagam College of Engineering
+Degree: B.Tech Computer Science & Engineering
+Target Role: Java Developer
+Skills: Java, Spring Boot, MySQL, REST APIs, Git, Docker, Microservices, Hibernate, Redis
+Project: "E-Commerce Microservices Engine"
+Technologies: Java, Spring Boot, MySQL, Redis, Docker
+Summary: Developed microservices for order processing and inventory control. Implemented REST endpoints and database transactions.
+Project: "Distributed Cache Engine"
+Technologies: Java, Concurrency, HashMaps, LRU Cache
+Summary: Built an in-memory distributed cache with multi-threading, custom hash buckets, and eviction policies.
+    `.trim();
+
+    const demoParsedData = {
+      contact: {
+        name: 'Demo Candidate',
+        email: 'demo@skillmatch.ai',
+        phone: '+91 9876543210'
+      },
+      skills: {
+        technical: ['Java', 'Spring Boot', 'MySQL', 'REST APIs', 'Git', 'Docker', 'Microservices', 'Hibernate', 'Redis'],
+        soft: ['Communication', 'Teamwork', 'Problem Solving'],
+        allSkillsFound: ['Java', 'Spring Boot', 'MySQL', 'REST APIs', 'Git', 'Docker', 'Microservices', 'Hibernate', 'Redis']
+      },
+      projects: [
+        {
+          name: 'E-Commerce Microservices Engine',
+          technologies: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker'],
+          description: 'Developed microservices for order processing and inventory control. Implemented REST endpoints and database transactions.',
+          features: ['Order placement and checkout', 'Inventory synchronization', 'JWT token authentication', 'Transaction atomicity'],
+          responsibilities: ['Architected REST APIs', 'Designed schema in MySQL', 'Implemented cache with Redis'],
+          duration: '6 Months'
+        },
+        {
+          name: 'Distributed Cache Engine',
+          technologies: ['Java', 'Concurrency', 'HashMaps', 'LRU Cache'],
+          description: 'Built an in-memory distributed cache with multi-threading, custom hash buckets, and eviction policies.',
+          features: ['O(1) lookups via HashMap', 'Thread-safe concurrent access', 'LRU eviction policy'],
+          responsibilities: ['Implemented bucket hash logic', 'Benchmarked multi-threaded latency'],
+          duration: '4 Months'
+        }
+      ],
+      education: [
+        {
+          degree: 'B.Tech Computer Science & Engineering',
+          college: 'Karpagam College of Engineering',
+          year: '2024'
+        }
+      ],
+      certifications: ['Oracle Certified Associate, Java SE 8 Programmer'],
+      experience: []
+    };
+
+    const demoAnalysis = {
+      id: 'res-demo-default',
+      fileName: 'Demo_Candidate_Resume.pdf',
+      targetRole: 'Java Developer',
+      atsScore: 78,
+      parsedData: demoParsedData,
+      detectedSkills: demoParsedData.skills.allSkillsFound
+    };
+
+    await dbRun(
+      `INSERT INTO resumes 
+       (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json, processing_status, extracted_text_length, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
+      [
+        'res-demo-default',
+        'user-demo',
+        'Demo_Candidate_Resume.pdf',
+        'PDF',
+        demoRawText.length,
+        demoRawText,
+        JSON.stringify(demoParsedData),
+        'Java Developer',
+        JSON.stringify(demoAnalysis),
+        demoRawText.length,
+        new Date().toISOString()
+      ]
+    );
+    console.log('[SkillMatch DB] Seeded default demo resume for user-demo [ID: res-demo-default]');
+  }
+
   // Seed default administrator if not present
   const existingAdmin = await dbGet(`SELECT * FROM users WHERE email = ?`, ['admin@skillmatch.ai']);
   if (!existingAdmin) {
