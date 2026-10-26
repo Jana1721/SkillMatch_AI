@@ -508,10 +508,22 @@ export async function initDatabase() {
     )
   `);
 
-  try {
-    await dbRun(`ALTER TABLE resumes ADD COLUMN overall_score INTEGER`);
-    await dbRun(`ALTER TABLE resumes ADD COLUMN scorecard_json TEXT`);
-  } catch (e) {}
+  const resumeColumnsToAdd = [
+    'overall_score INTEGER',
+    'scorecard_json TEXT',
+    'processing_status TEXT DEFAULT \'ready\'',
+    'extracted_text_length INTEGER DEFAULT 0',
+    'error_message TEXT',
+    'updated_at DATETIME'
+  ];
+
+  for (const colDef of resumeColumnsToAdd) {
+    try {
+      await dbRun(`ALTER TABLE resumes ADD COLUMN ${colDef}`);
+    } catch (e) {
+      // Column already exists or already migrated
+    }
+  }
 
   // 4. GitHub Project Link Verifications
   await dbRun(`
@@ -626,7 +638,7 @@ export async function initDatabase() {
   `);
 
   try {
-    await dbRun(`ALTER TABLE interview_sessions ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+    await dbRun(`ALTER TABLE interview_sessions ADD COLUMN updated_at DATETIME`);
   } catch (e) {}
 
   // 7. Interview Evaluations & Performance Reports

@@ -47,26 +47,19 @@ export const InterviewPrep: React.FC = () => {
 
   // Consolidate into array
   const allQuestions = questionsData
-    ? [
+    ? (questionsData.allQuestions || [
         ...(questionsData.projectQuestions || []),
         ...(questionsData.javaQuestions || []),
         ...(questionsData.dsaQuestions || []),
         ...(questionsData.sqlQuestions || []),
         ...(questionsData.serviceNowQuestions || []),
         ...(questionsData.behavioralQuestions || [])
-      ]
+      ])
     : [];
 
   const categories = [
     'All',
-    'Project Architecture & Decisions',
-    'Java Core & Concurrency',
-    'Java Enterprise / Spring Boot',
-    'Data Structures & Algorithms',
-    'Databases & SQL',
-    'ServiceNow Architecture',
-    'Behavioral & Teamwork',
-    'HR & Career Alignment'
+    ...Array.from(new Set(allQuestions.map((q: any) => q.category).filter(Boolean)))
   ];
 
   const filteredQuestions = allQuestions.filter(q => {

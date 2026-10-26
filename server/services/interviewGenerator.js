@@ -123,26 +123,203 @@ export function generateInterviewQuestions(candidateSkillsOrParsed, projectsArg,
     }
   ];
 
-  // 6. HR & Behavioral Questions
-  const behavioralQuestions = [
+  // 7. Personal & General HR Questions
+  const personalHrQuestions = [
     {
-      id: 'hr-q-1',
-      category: 'Behavioral & Teamwork',
-      question: 'Tell me about a time when your code didn\'t work as expected or a deployment failed. How did you diagnose the issue?',
-      difficulty: 'Medium',
-      whyInterviewerMayAsk: 'To evaluate accountability, debugging maturity, and emotional resilience under pressure.',
-      expectedConcepts: ['STAR Method (Situation, Task, Action, Result)', 'Root-cause analysis (logs, stack traces)', 'Preventive actions taken'],
-      sampleAnswerStructure: 'Situation: describe the bug -> Action: describe checking server logs and reproducing -> Result: resolved bug and added automated test.'
+      id: 'hr-gen-1',
+      category: 'Personal & General HR',
+      question: 'Where do you see yourself professionally in the next 2 to 3 years, and what technical milestones do you plan to achieve?',
+      difficulty: 'Easy',
+      whyInterviewerMayAsk: 'To evaluate long-term ambition, retention likelihood, and career planning clarity.',
+      expectedConcepts: ['Realistic professional milestones', 'Desire to grow from junior to independent contributor', 'Continuous skill acquisition'],
+      sampleAnswerStructure: 'State short-term goal of becoming self-sufficient in the stack -> outline desire to take ownership of end-to-end features -> mention goal of mentoring future interns.'
     },
     {
-      id: 'hr-q-2',
-      category: 'HR & Career Alignment',
-      question: `Why are you specifically interested in starting your career as a ${targetRole}? How have your academic projects prepared you for this transition?`,
-      difficulty: 'Easy / Medium',
-      whyInterviewerMayAsk: 'To test genuine domain passion and self-awareness regarding your current technical baseline.',
-      expectedConcepts: ['Clear career trajectory', 'Specific tools and languages you enjoy building with', 'Eagerness to learn in a structured team'],
-      sampleAnswerStructure: 'Connect your academic coursework and hands-on projects directly to the day-to-day responsibilities of the role.'
+      id: 'hr-gen-2',
+      category: 'Personal & General HR',
+      question: 'How do you handle technical frustration or high-pressure deadlines without compromising code quality?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Assesses emotional intelligence, stress management, and code integrity.',
+      expectedConcepts: ['Prioritization', 'Communicating early with team leads', 'Taking strategic breaks to maintain focus'],
+      sampleAnswerStructure: 'Break down the bottleneck -> communicate timeline risks transparently -> maintain unit testing discipline rather than taking shortcuts.'
     }
+  ];
+
+  // 8. Company-Based HR Questions
+  const companyHrQuestions = [
+    {
+      id: 'hr-comp-1',
+      category: 'Company-Based HR',
+      question: 'What attracted you to apply for an engineering role at our company, and how does our technical mission align with your values?',
+      difficulty: 'Easy / Medium',
+      whyInterviewerMayAsk: 'To evaluate candidate preparation, genuine interest, and culture fit.',
+      expectedConcepts: ['Company products or engineering reputation', 'Alignment with team culture', 'Desire to solve impactful real-world problems'],
+      sampleAnswerStructure: 'Highlight a specific aspect of the company platform or culture -> connect it to your technical passion.'
+    },
+    {
+      id: 'hr-comp-2',
+      category: 'Company-Based HR',
+      question: 'How do you adapt when internal engineering standards or architectural guidelines differ from how you previously wrote code?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Checks open-mindedness, humility, and adherence to company conventions.',
+      expectedConcepts: ['Respecting shared code conventions', 'Active participation in code reviews', 'Prioritizing team consistency over personal stylistic preference'],
+      sampleAnswerStructure: 'Embrace team linters and style guides -> understand the architectural reasoning -> prioritize maintainability for the entire engineering organization.'
+    }
+  ];
+
+  // 9. Situational & Behavioral Questions
+  const situationalQuestions = [
+    {
+      id: 'sit-1',
+      category: 'Behavioral & Situational',
+      question: 'Describe a situation where you had to quickly learn an unfamiliar technology, library, or framework to complete an assignment. What was your approach?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Measures learning agility, resourcefulness, and self-directed study under time constraints.',
+      expectedConcepts: ['Consulting official documentation', 'Building minimal proof-of-concept prototypes', 'Incremental learning applied to project needs'],
+      sampleAnswerStructure: 'Identify core API patterns -> build a throwaway sandbox script to test edge cases -> integrate into the main project.'
+    },
+    {
+      id: 'sit-2',
+      category: 'Behavioral & Situational',
+      question: 'What would you do if a mentor or senior engineer left critical feedback on your pull request pointing out major design flaws?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Tests ego management, receptive attitude to critique, and ability to improve code collaboratively.',
+      expectedConcepts: ['Viewing critique objectively as a learning opportunity', 'Asking clarifying questions', 'Refactoring with updated tests'],
+      sampleAnswerStructure: 'Thank the reviewer -> clarify requirements on complex points -> refactor the code and verify behavior with automated tests.'
+    }
+  ];
+
+  // 10. Fresher-Specific Questions
+  const fresherQuestions = [
+    {
+      id: 'fresh-1',
+      category: 'Fresher-Specific Questions',
+      question: 'As a fresher transitioning from college to corporate software engineering, what do you anticipate will be your biggest challenge, and how are you preparing for it?',
+      difficulty: 'Easy / Medium',
+      whyInterviewerMayAsk: 'Assesses self-awareness, realistic expectations of industry velocity, and proactive preparation.',
+      expectedConcepts: ['Navigating large legacy codebases', 'Rigorous testing and code review standards', 'Active listening and seeking guidance when blocked'],
+      sampleAnswerStructure: 'Acknowledge the scale of production codebases -> mention reading open-source code and practicing Git workflows -> outline commitment to disciplined documentation.'
+    },
+    {
+      id: 'fresh-2',
+      category: 'Fresher-Specific Questions',
+      question: 'How have you kept your practical coding skills active outside of your formal university syllabus?',
+      difficulty: 'Easy',
+      whyInterviewerMayAsk: 'Validates intrinsic passion for software development and hands-on initiative.',
+      expectedConcepts: ['Building independent projects', 'Solving coding challenges on LeetCode/HackerRank', 'Following tech blogs and release notes'],
+      sampleAnswerStructure: 'Highlight personal GitHub repositories -> describe daily algorithmic practice -> mention building working applications.'
+    }
+  ];
+
+  // 11. Unexpected & Critical-Thinking Questions
+  const criticalThinkingQuestions = [
+    {
+      id: 'crit-1',
+      category: 'Critical-Thinking & Edge Cases',
+      question: 'How would you explain the concept of an API or database index to a non-technical marketing executive in simple terms?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Tests cross-functional communication and ability to abstract complex technical mechanisms.',
+      expectedConcepts: ['Real-world analogy (restaurant menu/waiter for API, book index for DB index)', 'Avoiding unnecessary technical jargon', 'Focusing on business value'],
+      sampleAnswerStructure: 'Use a clear analogy -> explain why it speeds up retrieval or facilitates communication -> summarize business impact.'
+    },
+    {
+      id: 'crit-2',
+      category: 'Critical-Thinking & Edge Cases',
+      question: 'If a critical third-party payment or authentication API experiences a complete outage, how should your application respond to prevent user confusion and data corruption?',
+      difficulty: 'Hard',
+      whyInterviewerMayAsk: 'Evaluates resilience thinking, fault tolerance, and defensive programming.',
+      expectedConcepts: ['Graceful degradation', 'Circuit breaker pattern', 'Informative user error messages', 'Queueing or idempotent retries'],
+      sampleAnswerStructure: 'Catch boundary timeouts -> display clean status notices rather than crashing -> queue non-time-sensitive actions with idempotency keys.'
+    }
+  ];
+
+  // 12. Resume Introduction & Overview Questions
+  const introQuestions = [
+    {
+      id: 'intro-1',
+      category: 'Resume & Introduction',
+      question: 'Tell me about yourself, your educational journey, and what technical areas you are most passionate about.',
+      difficulty: 'Beginner',
+      whyInterviewerMayAsk: 'Standard opening question to evaluate verbal communication structure, enthusiasm, and focus.',
+      expectedConcepts: ['Structured chronological overview', 'Key skills and coursework', 'Why you want to excel in this role'],
+      sampleAnswerStructure: 'Introduce academic background -> highlight core languages and projects -> express passion for this engineering domain.'
+    },
+    {
+      id: 'intro-2',
+      category: 'Resume & Introduction',
+      question: 'Looking at your resume, what technical project or accomplishment are you most proud of, and why was it significant to you?',
+      difficulty: 'Beginner / Medium',
+      whyInterviewerMayAsk: 'To assess depth of ownership and pride in technical craftsmanship.',
+      expectedConcepts: ['Clear technical context', 'Personal contribution and challenges overcome', 'Measurable result or lesson learned'],
+      sampleAnswerStructure: 'Name the accomplishment -> detail the technical challenge -> explain what you learned from delivering it.'
+    }
+  ];
+
+  // 13. Teamwork & Individual Contribution
+  const teamworkQuestions = [
+    {
+      id: 'team-1',
+      category: 'Teamwork & Contribution',
+      question: 'In your team or academic projects, how did you divide responsibilities, agree on API contracts, and resolve merge conflicts or differing technical opinions?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Validates collaborative habits, version control maturity, and constructive conflict resolution.',
+      expectedConcepts: ['Defining OpenAPI/Swagger or interface contracts early', 'Feature branch workflows in Git', 'Resolving technical debates with empirical benchmarks'],
+      sampleAnswerStructure: 'Agree on interfaces before coding -> use pull requests with code reviews -> test controversial approaches with minimal prototypes.'
+    }
+  ];
+
+  // 14. Scenario-Based Technical Questions
+  const scenarioQuestions = [
+    {
+      id: 'scen-1',
+      category: 'Scenario-Based Reasoning',
+      question: 'If users report that the application has suddenly become extremely sluggish and slow to respond under moderate traffic, what step-by-step diagnostic process would you follow?',
+      difficulty: 'Hard',
+      whyInterviewerMayAsk: 'Tests holistic production troubleshooting and systems telemetry knowledge.',
+      expectedConcepts: ['Checking server CPU, RAM, and disk I/O', 'Reviewing database connection pool saturation and slow query logs', 'Inspecting thread dumps or memory leak heap traces'],
+      sampleAnswerStructure: 'Check infrastructure health metrics -> inspect slow query logs -> profile active threads -> deploy targeted fix or index.'
+    },
+    {
+      id: 'scen-2',
+      category: 'Scenario-Based Reasoning',
+      question: 'How would you handle defensive validation for unexpected, missing, or maliciously malformed payloads sent to your backend endpoints?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Evaluates defensive programming and API boundary security.',
+      expectedConcepts: ['Schema validation before business logic', 'Sanitization against injection', 'Returning explicit 400 Bad Request responses with field details'],
+      sampleAnswerStructure: 'Validate input models at the controller level -> reject malformed structures early -> log security anomalies without leaking stack traces.'
+    }
+  ];
+
+  // 15. Certifications & Internships Questions
+  const certificationQuestions = [
+    {
+      id: 'cert-1',
+      category: 'Certifications & Internships',
+      question: 'What was the most valuable practical engineering lesson you learned from your internships, online certifications, or independent coursework?',
+      difficulty: 'Medium',
+      whyInterviewerMayAsk: 'Determines whether the candidate connects theoretical credentials with real engineering practice.',
+      expectedConcepts: ['Bridging theory with hands-on practice', 'Mastering debugging or deployment tooling', 'Appreciation for testing and clean code'],
+      sampleAnswerStructure: 'Identify the certification or internship -> describe a concrete scenario where the concept was applied -> explain the long-term impact on your code.'
+    }
+  ];
+
+  // Consolidate into full question library
+  const allQuestions = [
+    ...introQuestions,
+    ...projectQuestions,
+    ...javaQuestions,
+    ...dsaQuestions,
+    ...sqlQuestions,
+    ...serviceNowQuestions,
+    ...behavioralQuestions,
+    ...personalHrQuestions,
+    ...companyHrQuestions,
+    ...situationalQuestions,
+    ...fresherQuestions,
+    ...criticalThinkingQuestions,
+    ...teamworkQuestions,
+    ...scenarioQuestions,
+    ...certificationQuestions
   ];
 
   return {
@@ -151,7 +328,17 @@ export function generateInterviewQuestions(candidateSkillsOrParsed, projectsArg,
     dsaQuestions,
     sqlQuestions,
     serviceNowQuestions: skillsLower.some(s => s.includes('servicenow')) || targetRole.includes('ServiceNow') ? serviceNowQuestions : [],
-    behavioralQuestions
+    behavioralQuestions,
+    personalHrQuestions,
+    companyHrQuestions,
+    situationalQuestions,
+    fresherQuestions,
+    criticalThinkingQuestions,
+    introQuestions,
+    teamworkQuestions,
+    scenarioQuestions,
+    certificationQuestions,
+    allQuestions
   };
 }
 

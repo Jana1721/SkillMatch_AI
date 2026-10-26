@@ -29,6 +29,15 @@ export const SKILL_TAXONOMY = {
   enterpriseAndSpecialized: [
     'ServiceNow', 'ServiceNow Administration', 'ITSM', 'Flow Designer', 'GlideRecord', 'IntegrationHub',
     'Service Portal', 'Business Rules', 'Client Scripts', 'Agile', 'Scrum', 'Data Structures', 'Algorithms', 'OOP', 'System Design'
+  ],
+  aiAndMachineLearning: [
+    'Machine Learning', 'Deep Learning', 'PyTorch', 'TensorFlow', 'Keras', 'Computer Vision', 'Convolutional Neural Networks', 'CNN', 'OpenCV', 'NLP', 'Natural Language Processing', 'LLMs', 'Scikit-Learn', 'Pandas', 'NumPy', 'YOLO', 'YOLOv8', 'ResNet', 'Hugging Face'
+  ],
+  cybersecurity: [
+    'Cybersecurity', 'Network Security', 'Snort', 'Wireshark', 'Metasploit', 'SIEM', 'Kali Linux', 'Threat Hunting', 'Firewalls', 'Penetration Testing', 'SOC', 'Cryptography', 'Honeypot'
+  ],
+  dataAnalytics: [
+    'Data Analytics', 'ETL', 'Data Warehousing', 'Data Pipelines', 'Snowflake', 'BigQuery', 'Apache Spark', 'Hadoop', 'Statistics'
   ]
 };
 
@@ -125,17 +134,25 @@ export function extractPersonalInfo(text) {
  * 2. Education Extraction
  */
 export function extractEducation(text) {
-  const degreeMatch = text.match(/\b(B\.Tech|B\.E\.|BTech|BE|BCA|B\.Sc|BSc|M\.Tech|MTech|MCA|M\.Sc|Bachelor of Technology|Bachelor of Engineering|Master of Computer Applications)\b/i);
-  const collegeMatch = text.match(/(?:at|from|in|,|-)\s*([A-Z][a-zA-Z\s.,&]+(?:Engineering|College|Institute|University|Technology|Campus))/i) ||
-                       text.match(/([A-Z][a-zA-Z\s.,&]+(?:Institute of Technology|College of Engineering|University))/i);
+  const explicitDegree = text.match(/(?:degree|major|branch|qualification)[:\s]+([^\n\r,]+)/i);
+  const explicitCollege = text.match(/(?:college|university|institution|institute)[:\s]+([^\n\r,]+)/i);
+
+  const degreeMatch = explicitDegree
+    ? [explicitDegree[1].trim()]
+    : text.match(/\b(B\.Tech|B\.E\.|BTech|BE|BCA|B\.Sc|BSc|M\.Tech|MTech|MCA|M\.Sc|Bachelor of Technology|Bachelor of Engineering|Master of Computer Applications|Computer Science|Information Technology)\b/i);
+
+  const collegeMatch = explicitCollege
+    ? [null, explicitCollege[1].trim()]
+    : (text.match(/(?:\b(?:at|from|in)\b|,|-)\s*([A-Z][a-zA-Z\s.,&]+(?:Engineering|College|Institute|University|Technology|Campus))/i) ||
+       text.match(/([A-Z][a-zA-Z\s.,&]+(?:Institute of Technology|College of Engineering|University))/i));
   
   const gradYearMatch = text.match(/\b(202[0-9]|201[8-9])\b/);
   const cgpaMatch = text.match(/\b(CGPA|GPA|Percentage|Score)[:\s]*([0-9]+(?:\.[0-9]+)?(?:\s*\/\s*10|\s*%)?)\b/i) ||
                     text.match(/\b([0-9]\.[0-9]{1,2})\s*(?:\/|\s*out of\s*)10\b/i);
 
   return {
-    degree: degreeMatch ? degreeMatch[0] : 'Not found in resume',
-    college: collegeMatch ? collegeMatch[1].trim() : 'Not found in resume',
+    degree: degreeMatch ? (degreeMatch[1] || degreeMatch[0]).trim() : 'Not found in resume',
+    college: collegeMatch ? (collegeMatch[1] || collegeMatch[0]).trim() : 'Not found in resume',
     graduationYear: gradYearMatch ? gradYearMatch[0] : 'Not found in resume',
     cgpa: cgpaMatch ? (cgpaMatch[2] || cgpaMatch[1]) : 'Not found in resume'
   };
@@ -153,6 +170,9 @@ export function extractCategorizedSkills(text) {
     cloudAndDevOps: [],
     toolsAndPlatforms: [],
     enterpriseAndSpecialized: [],
+    aiAndMachineLearning: [],
+    cybersecurity: [],
+    dataAnalytics: [],
     allSkillsFound: []
   };
 
@@ -190,7 +210,17 @@ export function extractAndAnalyzeProjects(text, allSkills) {
     const line = lines[i].trim();
     if (!line) continue;
 
-    // Detect project section header
+    // Detect project section header or direct project line
+    if (/^projects?:\s*/i.test(line)) {
+      if (currentBlock.length > 0) {
+        projectBlocks.push(currentBlock.join('\n'));
+      }
+      const remainder = line.replace(/^projects?:\s*/i, '').trim();
+      currentBlock = remainder ? [remainder] : [];
+      inProjectsSection = true;
+      continue;
+    }
+
     if (/^(projects|academic projects|key projects|personal projects|technical projects)/i.test(line) && line.length < 35) {
       inProjectsSection = true;
       continue;
@@ -223,7 +253,7 @@ export function extractAndAnalyzeProjects(text, allSkills) {
 
   // If no explicit project section was delimited, scan for project-like paragraphs
   if (projectBlocks.length === 0) {
-    const matches = text.match(/(?:Project|System|Application|Portal|Platform|Engine|Dashboard|Bot)[\s\S]{30,350}(?=(?:Project|Education|Skills|Certifications|$))/gi);
+    const matches = text.match(/\b(?:Project|System|Application|Portal|Platform|Engine|Dashboard|Bot)\b[\s\S]{30,350}(?=(?:\b(?:Project|Education|Skills|Certifications)\b|$))/gi);
     if (matches && matches.length > 0) {
       matches.slice(0, 3).forEach(m => projectBlocks.push(m.trim()));
     }
@@ -232,7 +262,14 @@ export function extractAndAnalyzeProjects(text, allSkills) {
   const analyzedProjects = projectBlocks.map((block, idx) => {
     const blockLines = block.split('\n').filter(Boolean);
     const rawTitle = blockLines[0] || `Project ${idx + 1}`;
-    const cleanTitle = rawTitle.replace(/^[0-9]+\.\s*/, '').replace(/^[•*-]\s*/, '').split(/[-–|:]/)[0].trim();
+    const cleanTitle = rawTitle
+      .replace(/^projects?:\s*/i, '')
+      .replace(/^[0-9]+\.\s*/, '')
+      .replace(/^[•*-]\s*/, '')
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s+(?:github|tech|technologies|stack|using|tools)\b.*$/i, '')
+      .split(/\s+[-–—|:]\s+|\s*[:|]\s*/)[0]
+      .trim();
 
     // Detect tech in project
     const detectedTech = allSkills.filter(s => {

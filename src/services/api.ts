@@ -426,6 +426,7 @@ export const ApiService = {
     totalQuestions?: number;
     focusTopics?: string[];
     resumeData?: any;
+    resumeId?: string;
   }) {
     const res = await fetch('/api/interview/interactive/start', {
       method: 'POST',
@@ -500,6 +501,28 @@ export const ApiService = {
       headers: getAuthHeaders()
     });
     if (!res.ok) throw new Error('Failed to load interview history');
+    return res.json();
+  },
+
+  async getInteractiveMarksheet(sessionId: string) {
+    const res = await fetch(`/api/interview/interactive/${sessionId}/marksheet`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to fetch interview marksheet' }));
+      throw new Error(err.error || 'Failed to fetch interview marksheet');
+    }
+    return res.json();
+  },
+
+  async getAdminInterviewMarksheet(sessionId: string) {
+    const res = await fetch(`/api/admin/interview/${sessionId}/marksheet`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to fetch marksheet' }));
+      throw new Error(err.error || 'Failed to fetch marksheet');
+    }
     return res.json();
   },
 

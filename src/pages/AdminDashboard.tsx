@@ -32,6 +32,7 @@ import { Badge } from '../components/common/Badge';
 import { ApiService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { InterviewMarksheetView } from '../components/interview/InterviewMarksheetView';
 import {
   AdminStats,
   AdminCandidateSummary,
@@ -62,6 +63,7 @@ export const AdminDashboard: React.FC = () => {
   const [candidateDetail, setCandidateDetail] = useState<CandidateDetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState<'overview' | 'resumes' | 'interviews' | 'github'>('overview');
+  const [selectedMarksheetReport, setSelectedMarksheetReport] = useState<any | null>(null);
 
   // Rejection modal state
   const [rejectModalCandidate, setRejectModalCandidate] = useState<AdminCandidateSummary | null>(null);
@@ -1242,6 +1244,16 @@ export const AdminDashboard: React.FC = () => {
                                 <div className="font-bold text-purple-600">{i.problemSolvingScore}%</div>
                               </div>
                             </div>
+                            <div className="flex items-center justify-end pt-2 border-t border-slate-200/60">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMarksheetReport(i.report || { sessionId: i.sessionId, overallScore: i.overallScore, targetRole: i.targetRole, interviewType: i.interviewType })}
+                                className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Award className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>View Full Marksheet</span>
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
@@ -1277,6 +1289,20 @@ export const AdminDashboard: React.FC = () => {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Full Marksheet Modal */}
+      {selectedMarksheetReport && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-5xl w-full p-6 shadow-2xl overflow-hidden border border-slate-200 max-h-[90vh] flex flex-col">
+            <InterviewMarksheetView
+              report={selectedMarksheetReport}
+              candidateName={candidateDetail?.candidate?.name}
+              isModal={true}
+              onClose={() => setSelectedMarksheetReport(null)}
+            />
           </div>
         </div>
       )}

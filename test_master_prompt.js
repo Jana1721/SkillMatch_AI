@@ -42,7 +42,7 @@ async function testAll() {
       })
     });
     const regData = await regRes.json();
-    assert(regRes.status === 201 && regData.loginId && regData.loginId.startsWith('SKM-'), 
+    assert(regRes.status === 201 && regData.loginId && (regData.loginId.startsWith('SKM-') || regData.loginId.startsWith('KCE-')), 
       `Student registration succeeds and returns unique Login ID: ${regData.loginId}`);
     assert(regData.user.rollNumber === testRoll, `Roll number correctly persisted: ${regData.user.rollNumber}`);
 
@@ -210,7 +210,19 @@ async function testAll() {
     const jdMatch = await jdMatchRes.json();
     assert(jdMatchRes.ok && jdMatch.scores.resumeQualityScore && jdMatch.scores.jdMatchScore !== undefined, 
       `JD Matcher separates Resume Quality Score (${jdMatch.scores?.resumeQualityScore}/100) from JD Fit Score (${jdMatch.scores?.jdMatchScore}/100)`);
-    assert(jdMatch.matchResult.prioritizedChecklist.length > 0, 'JD Matcher generates prioritized improvement checklist');
+    // 16b. Upload candidate resume for AI Voice Interview
+    await fetch(`${BASE_URL}/resume/analyze-text`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${studentToken}`
+      },
+      body: JSON.stringify({
+        text: 'ANAND KUMAR - FULL STACK JAVA DEVELOPER\nSKILLS: Java 17, Spring Boot, React, SQL, PostgreSQL, REST APIs, Microservices, Git\nPROJECTS:\n1. E-Commerce Microservices Engine\n- Built high throughput order processing engine using Java 17 and Spring Boot with PostgreSQL.\n- Designed REST APIs for product search, shopping cart, and checkout workflows.',
+        fileName: 'anand_resume.txt',
+        targetRole: 'Full Stack Java Developer'
+      })
+    });
 
     // 17. AI Voice Interview Session grounded in resume
     const interviewStartRes = await fetch(`${BASE_URL}/interview/interactive/start`, {

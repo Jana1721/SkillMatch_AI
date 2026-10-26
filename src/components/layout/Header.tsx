@@ -78,15 +78,15 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
     { title: 'Dashboard', path: '/dashboard' },
     { title: 'Resume Analyzer', path: '/resume' },
     { title: 'Skill Gap Analysis', path: '/skill-gap' },
-    { title: 'Job Matches', path: '/jobs' },
+    { title: 'AI Voice Interview', path: '/interview' },
     { title: 'Learning Roadmap', path: '/learning' },
     { title: 'AI Career Advisor', path: '/advisor' }
   ].filter(p => p.title.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const notifications = [
-    { id: '1', title: 'New Job Match', desc: 'Junior Data Analyst at DataCorp has a 92% match score with your updated skills.', time: '10m ago', unread: true },
+    { id: '1', title: 'AI Interview Readiness', desc: 'Complete your voice interview simulation to increase your readiness score.', time: '10m ago', unread: true },
     { id: '2', title: 'Milestone Completed', desc: 'Phase 1: Strengthen Fundamentals is 100% completed.', time: '2h ago', unread: true },
-    { id: '3', title: 'ATS Recommendation', desc: 'Adding Power BI can boost your interview shortlist probability by 18%.', time: '1d ago', unread: false }
+    { id: '3', title: 'ATS Recommendation', desc: 'Adding verified skills can boost your interview shortlist probability by 18%.', time: '1d ago', unread: false }
   ];
 
   return (
@@ -107,7 +107,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
             <Search className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search jobs, skills, paths, companies..."
+              placeholder="Search skills, paths, interview prep..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);

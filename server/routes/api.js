@@ -205,12 +205,14 @@ router.post('/auth/register', async (req, res) => {
     const token = signToken(userObj);
 
     // Send real verification email with 6-digit OTP to student's Gmail / email
-    await sendVerificationEmail({
+    sendVerificationEmail({
       userId,
       name: name.trim(),
       email: normalizedEmail,
       credentialId,
       token: verificationCode
+    }).catch(err => {
+      console.warn('[Verification Email Dispatch Warn]', err.message);
     });
 
     return res.status(201).json({
@@ -1669,8 +1671,29 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
       return res.status(400).json({ error: 'No resume document provided. Please select a PDF, DOCX, or TXT file.' });
     }
 
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in to upload a resume.' });
+    }
+
     const targetRole = req.body.targetRole || req.user?.targetRole || 'Software Engineer';
-    const parsedDoc = await parseDocument(req.file.buffer, req.file.originalname, req.file.mimetype);
+    
+    // Parse readable text
+    let parsedDoc;
+    try {
+      parsedDoc = await parseDocument(req.file.buffer, req.file.originalname, req.file.mimetype);
+    } catch (parseErr) {
+      console.warn(`[Diagnostic] [Resume Extraction Failed] userId=${candidateId} file=${req.file.originalname} error=${parseErr.message}`);
+      return res.status(400).json({ error: `Text extraction failed: ${parseErr.message}` });
+    }
+
+    if (!parsedDoc.rawText || parsedDoc.rawText.trim().length < 30) {
+      console.warn(`[Diagnostic] [Resume Extraction Incomplete] userId=${candidateId} file=${req.file.originalname} length=${parsedDoc.rawText?.length || 0}`);
+      return res.status(400).json({
+        error: 'Unable to extract readable text from document. Ensure the file contains selectable text and is not an image scan.'
+      });
+    }
+
     const analysis = analyzeResume(parsedDoc.rawText, targetRole, req.file.originalname);
 
     // Live verification of GitHub project links embedded in the candidate resume
@@ -1680,22 +1703,27 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
     );
     analysis.githubVerification = githubVerification;
 
-    // Persist under authenticated user ID
+    // Persist under authenticated candidate ID with processing_status = 'ready'
     await dbRun(
-      `INSERT OR REPLACE INTO resumes (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO resumes 
+       (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json, processing_status, extracted_text_length, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
       [
         analysis.id,
-        req.user.id,
+        candidateId,
         req.file.originalname,
         parsedDoc.formatDetected,
         req.file.size,
         parsedDoc.rawText,
         JSON.stringify(analysis.parsedData),
         targetRole,
-        JSON.stringify(analysis)
+        JSON.stringify(analysis),
+        parsedDoc.rawText.length,
+        new Date().toISOString()
       ]
     );
+
+    console.log(`[Diagnostic] [Resume Upload Completed] userId=${candidateId} resumeId=${analysis.id} file=${req.file.originalname} size=${req.file.size} words=${parsedDoc.wordCount} status=ready`);
 
     return res.json({
       success: true,
@@ -1708,7 +1736,7 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
       analysis
     });
   } catch (err) {
-    console.error('[Upload Error]', err);
+    console.error('[Diagnostic] [Upload Error]', err);
     return res.status(400).json({ error: err.message || 'Failed to parse resume document' });
   }
 });
@@ -1716,9 +1744,14 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
 // 2. Paste Resume Text Directly
 router.post('/resume/analyze-text', async (req, res) => {
   try {
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in to analyze resume text.' });
+    }
+
     const { text, targetRole = req.user?.targetRole || 'Software Engineer', sourceName = 'Pasted_Resume.txt' } = req.body;
-    if (!text || text.trim().length < 20) {
-      return res.status(400).json({ error: 'Please provide substantial resume text (minimum 20 characters) to analyze.' });
+    if (!text || text.trim().length < 30) {
+      return res.status(400).json({ error: 'Please provide substantial resume text (minimum 30 characters) to analyze.' });
     }
 
     const analysis = analyzeResume(text, targetRole, sourceName);
@@ -1731,27 +1764,32 @@ router.post('/resume/analyze-text', async (req, res) => {
     analysis.githubVerification = githubVerification;
 
     await dbRun(
-      `INSERT OR REPLACE INTO resumes (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO resumes 
+       (id, user_id, file_name, file_type, file_size, raw_text, parsed_json, target_role, analysis_json, processing_status, extracted_text_length, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
       [
         analysis.id,
-        req.user.id,
+        candidateId,
         sourceName,
         'TXT',
         text.length,
         text,
         JSON.stringify(analysis.parsedData),
         targetRole,
-        JSON.stringify(analysis)
+        JSON.stringify(analysis),
+        text.length,
+        new Date().toISOString()
       ]
     );
+
+    console.log(`[Diagnostic] [Resume Text Analyzed] userId=${candidateId} resumeId=${analysis.id} length=${text.length} status=ready`);
 
     return res.json({
       success: true,
       analysis
     });
   } catch (err) {
-    console.error('[Analyze Text Error]', err);
+    console.error('[Diagnostic] [Analyze Text Error]', err);
     return res.status(400).json({ error: err.message || 'Failed to analyze resume text' });
   }
 });
@@ -1781,25 +1819,35 @@ router.post('/resume/verify-github', async (req, res) => {
   }
 });
 
-// 3. Get Current Active Resume Analysis for Authenticated User
+// 3. Get Current Active Resume Analysis for Authenticated Candidate Only
 router.get('/resume/current', async (req, res) => {
   try {
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in.' });
+    }
+
     const row = await dbGet(
-      'SELECT * FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
-      [req.user.id]
+      "SELECT * FROM resumes WHERE user_id = ? AND (processing_status = 'ready' OR processing_status IS NULL) ORDER BY COALESCE(updated_at, created_at) DESC, rowid DESC LIMIT 1",
+      [candidateId]
     );
 
     if (row && row.analysis_json) {
-      return res.json({ success: true, analysis: JSON.parse(row.analysis_json) });
+      const parsedAnalysis = JSON.parse(row.analysis_json);
+      return res.json({
+        success: true,
+        analysis: parsedAnalysis,
+        resume: row
+      });
     }
 
-    // Fallback to demo resume if none uploaded yet
-    const anyRow = await dbGet('SELECT * FROM resumes ORDER BY created_at DESC LIMIT 1');
-    if (anyRow && anyRow.analysis_json) {
-      return res.json({ success: true, analysis: JSON.parse(anyRow.analysis_json) });
-    }
-
-    return res.json({ success: false, message: 'No resume analyzed yet' });
+    // Never fall back to another student's resume!
+    return res.status(404).json({
+      success: false,
+      error: 'No processed resume found for this candidate. Please upload your resume first.',
+      resume: null,
+      analysis: null
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -1952,9 +2000,14 @@ router.post('/resume/improve', async (req, res) => {
 // 5. AI VOICE INTERVIEW AGENT — REAL-TIME CONVERSATIONAL INTERVIEWS
 // ============================================================================
 
-// Start Interactive Voice Interview Session Grounded in Candidate Resume
+// Start Interactive Voice Interview Session Grounded in Candidate's Own Resume
 router.post('/interview/interactive/start', async (req, res) => {
   try {
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in to start your personalized interview.' });
+    }
+
     const {
       interviewType = 'Mixed Interview',
       targetRole = req.user?.targetRole || 'Software Engineer',
@@ -1962,66 +2015,12 @@ router.post('/interview/interactive/start', async (req, res) => {
       difficulty = 'Intermediate',
       totalQuestions = 5,
       focusTopics = [],
-      resumeData: clientResumeData
+      resumeId = null
     } = req.body;
 
-    let resumeData = null;
-
-    // 1. Prioritize explicit resumeData provided in request body
-    if (clientResumeData && (clientResumeData.parsedData || clientResumeData.scores || clientResumeData.skills || clientResumeData.projects)) {
-      if (clientResumeData.parsedData) {
-        resumeData = clientResumeData;
-      } else {
-        resumeData = {
-          id: clientResumeData.id || `res-client-${Date.now()}`,
-          targetRole: clientResumeData.targetRole || targetRole,
-          parsedData: {
-            contact: clientResumeData.contact || { name: req.user?.name || 'Candidate', email: req.user?.email },
-            education: clientResumeData.education || [{ degree: req.user?.degree || 'Computer Science & Engineering', college: req.user?.college || 'Engineering College' }],
-            skills: clientResumeData.skills || { allSkillsFound: [] },
-            projects: clientResumeData.projects || []
-          }
-        };
-      }
-    }
-
-    // 2. Fetch user's current resume from database
-    if (!resumeData) {
-      const resumeRow = await dbGet('SELECT * FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
-      if (resumeRow && resumeRow.analysis_json) {
-        try {
-          resumeData = JSON.parse(resumeRow.analysis_json);
-        } catch (e) {}
-      }
-    }
-
-    // 3. Fallback: check most recently uploaded resume in system
-    if (!resumeData) {
-      const anyRecentResume = await dbGet('SELECT * FROM resumes ORDER BY created_at DESC LIMIT 1');
-      if (anyRecentResume && anyRecentResume.analysis_json) {
-        try {
-          resumeData = JSON.parse(anyRecentResume.analysis_json);
-        } catch (e) {}
-      }
-    }
-
-    // 4. Baseline candidate profile from authenticated user info (without fake project hallucination)
-    if (!resumeData || !resumeData.parsedData) {
-      resumeData = {
-        id: 'usr-prof-' + (req.user?.id || 'candidate'),
-        targetRole,
-        parsedData: {
-          contact: { name: req.user?.name || 'Candidate', email: req.user?.email },
-          education: [{ degree: req.user?.degree || 'Computer Science & Engineering', college: req.user?.college || 'Engineering College' }],
-          skills: { allSkillsFound: ['Data Structures', 'OOP', 'SQL', 'Git', 'Problem Solving'] },
-          projects: []
-        }
-      };
-    }
-
     const sessionInit = await startInterviewSession({
-      userId: req.user.id,
-      resumeData,
+      userId: candidateId,
+      resumeId,
       interviewType,
       targetRole,
       experienceLevel,
@@ -2035,7 +2034,7 @@ router.post('/interview/interactive/start', async (req, res) => {
       ...sessionInit
     });
   } catch (err) {
-    console.error('[Interview Start Error]', err);
+    console.error('[Diagnostic] [Interview Start Failed]', err.message);
     return res.status(400).json({ error: err.message || 'Failed to start AI Voice Interview session.' });
   }
 });
@@ -2043,15 +2042,25 @@ router.post('/interview/interactive/start', async (req, res) => {
 // Submit Candidate Spoken/Typed Answer and Advance Turn
 router.post('/interview/interactive/turn', async (req, res) => {
   try {
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in.' });
+    }
+
     const { sessionId, userAnswer, timeTakenSeconds } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: 'Session ID is required.' });
     }
 
+    if (!userAnswer || !userAnswer.trim()) {
+      return res.status(400).json({ error: 'Empty or silent recording detected. Spoken answer transcript cannot be empty. Please speak clearly into your microphone.' });
+    }
+
     const result = await submitAnswerAndGetNextTurn({
       sessionId,
-      userAnswer: userAnswer || '[Candidate provided no audible response]',
-      timeTakenSeconds: timeTakenSeconds || 30
+      userAnswer: userAnswer.trim(),
+      timeTakenSeconds: timeTakenSeconds || 30,
+      userId: candidateId
     });
 
     return res.json({
@@ -2059,8 +2068,9 @@ router.post('/interview/interactive/turn', async (req, res) => {
       ...result
     });
   } catch (err) {
-    console.error('[Interview Turn Error]', err);
-    return res.status(500).json({ error: err.message });
+    console.error('[Diagnostic] [Interview Turn Error]', err.message);
+    const statusCode = err.message.includes('Access denied') ? 403 : 500;
+    return res.status(statusCode).json({ error: err.message });
   }
 });
 
@@ -2068,21 +2078,28 @@ router.post('/interview/interactive/turn', async (req, res) => {
 router.post('/interview/interactive/hint', async (req, res) => {
   try {
     const { sessionId } = req.body;
-    const hintData = await getQuestionHint({ sessionId });
+    const hintData = await getQuestionHint({ sessionId, userId: req.user?.id });
     return res.json({ success: true, ...hintData });
   } catch (err) {
-    return res.status(400).json({ error: err.message });
+    const statusCode = err.message.includes('Access denied') ? 403 : 400;
+    return res.status(statusCode).json({ error: err.message });
   }
 });
 
 // Skip Active Question
 router.post('/interview/interactive/skip', async (req, res) => {
   try {
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in.' });
+    }
+
     const { sessionId } = req.body;
-    const result = await skipInterviewQuestion({ sessionId });
+    const result = await skipInterviewQuestion({ sessionId, userId: candidateId });
     return res.json({ success: true, ...result });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    const statusCode = err.message.includes('Access denied') ? 403 : 500;
+    return res.status(statusCode).json({ error: err.message });
   }
 });
 
@@ -2093,6 +2110,10 @@ router.post('/interview/interactive/finish', async (req, res) => {
     const sessionRow = await dbGet('SELECT * FROM interview_sessions WHERE id = ?', [sessionId]);
     if (!sessionRow) {
       return res.status(404).json({ error: 'Interview session not found.' });
+    }
+
+    if (req.user?.id && sessionRow.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. You cannot modify another candidate\'s interview session.' });
     }
 
     const sessionState = JSON.parse(sessionRow.session_data_json);
@@ -2140,6 +2161,58 @@ router.get('/interview/history', async (req, res) => {
     }));
 
     return res.json({ success: true, evaluations: parsedEvaluations });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Get Specific Interview Marksheet (Candidate Access Controlled: Candidate can only access their own)
+router.get('/interview/interactive/:sessionId/marksheet', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const sessionRow = await dbGet('SELECT * FROM interview_sessions WHERE id = ?', [sessionId]);
+    if (!sessionRow) {
+      return res.status(404).json({ error: 'Interview session not found.' });
+    }
+
+    // Strict access control: Student can only view their own marksheet; Admins can view any
+    if (req.user?.id && sessionRow.user_id !== req.user.id && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied. You cannot view another candidate\'s interview marksheet.' });
+    }
+
+    const sessionState = JSON.parse(sessionRow.session_data_json);
+    const finalReport = compileFinalInterviewReport(sessionState);
+
+    return res.json({
+      success: true,
+      sessionId,
+      marksheet: finalReport.marksheet,
+      finalReport
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin Marksheet Access Endpoint (Admin Privilege Required: Authorized admins can view any candidate marksheet)
+router.get('/admin/interview/:sessionId/marksheet', requireAdmin, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const sessionRow = await dbGet('SELECT * FROM interview_sessions WHERE id = ?', [sessionId]);
+    if (!sessionRow) {
+      return res.status(404).json({ error: 'Interview session not found.' });
+    }
+
+    const sessionState = JSON.parse(sessionRow.session_data_json);
+    const finalReport = compileFinalInterviewReport(sessionState);
+
+    return res.json({
+      success: true,
+      sessionId,
+      candidateId: sessionRow.user_id,
+      marksheet: finalReport.marksheet,
+      finalReport
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -2326,17 +2399,24 @@ router.get('/roles', (req, res) => {
 // Interview Preparation Questions based on role & resume
 router.get('/interview/questions', async (req, res) => {
   try {
-    const role = req.query.role || req.user?.targetRole || 'Software Engineer';
-    const resumeRow = await dbGet('SELECT analysis_json FROM resumes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
-    let analysis = resumeRow ? JSON.parse(resumeRow.analysis_json) : null;
-    let parsedData = analysis?.parsedData;
-    if (!parsedData) {
-      const anyRow = await dbGet('SELECT analysis_json FROM resumes ORDER BY created_at DESC LIMIT 1');
-      if (anyRow?.analysis_json) {
-        try { parsedData = JSON.parse(anyRow.analysis_json).parsedData; } catch (e) {}
-      }
+    const candidateId = req.user?.id;
+    if (!candidateId || candidateId === 'guest-user') {
+      return res.status(401).json({ error: 'Authentication required. Please log in.' });
     }
-    const questions = generateInterviewQuestions(parsedData || { skills: { allSkillsFound: ['Java', 'SQL', 'Git'] }, projects: [] }, role);
+
+    const role = req.query.role || req.user?.targetRole || 'Software Engineer';
+    const resumeRow = await dbGet(
+      "SELECT analysis_json FROM resumes WHERE user_id = ? AND (processing_status = 'ready' OR processing_status IS NULL) ORDER BY created_at DESC LIMIT 1",
+      [candidateId]
+    );
+
+    if (!resumeRow || !resumeRow.analysis_json) {
+      return res.status(404).json({ error: 'No processed resume found for this candidate. Please upload your resume first.' });
+    }
+
+    let analysis = JSON.parse(resumeRow.analysis_json);
+    let parsedData = analysis?.parsedData;
+    const questions = generateInterviewQuestions(parsedData, role);
     return res.json({ success: true, questions });
   } catch (err) {
     return res.status(500).json({ error: err.message });

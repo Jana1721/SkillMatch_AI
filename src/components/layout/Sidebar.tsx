@@ -5,11 +5,8 @@ import {
   User,
   FileText,
   Target,
-  Briefcase,
   BookOpen,
-  IndianRupee,
   Bot,
-  Bookmark,
   Settings,
   X,
   Sparkles,
@@ -21,7 +18,6 @@ import {
 } from 'lucide-react';
 import { GithubIcon } from '../common/GithubIcon';
 import { useAuth } from '../../context/AuthContext';
-import { StorageService } from '../../utils/storage';
 
 export interface SidebarProps {
   isOpen: boolean;
@@ -31,7 +27,6 @@ export interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const savedCount = StorageService.getSavedJobs().length;
 
   // Navigation Items
   const navItems = [
@@ -39,11 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { label: 'Resume & JD Matcher', path: '/upload', icon: UploadCloud, badge: 'ATS Studio' },
     { label: 'AI Voice Interview', path: '/interview', icon: Mic, isVoice: true, badge: 'Voice AI' },
     { label: 'Skill Gap Analysis', path: '/skill-gap', icon: Target },
-    { label: 'Career & Job Matching', path: '/jobs', icon: Briefcase },
     { label: 'AI Career Advisor', path: '/advisor', icon: Bot, isAi: true },
     { label: 'Learning & Development', path: '/learning', icon: BookOpen },
-    { label: 'Saved Jobs', path: '/saved-jobs', icon: Bookmark, badgeCount: savedCount },
-    { label: 'Salary Insights', path: '/salary', icon: IndianRupee },
     { label: 'Candidate Profile', path: '/profile', icon: User },
     { label: 'Account Settings', path: '/settings', icon: Settings }
   ];

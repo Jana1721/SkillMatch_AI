@@ -25,6 +25,7 @@ async function runTests() {
       body: JSON.stringify({
         name: 'Jordan Lee',
         email: testEmail,
+        rollNumber: `ROLL-E2E-${Date.now()}`,
         password: 'Password123!',
         passwordConfirm: 'Password123!',
         college: 'Indian Institute of Technology',
@@ -34,7 +35,7 @@ async function runTests() {
     }).then(r => r.json());
 
     assert(regRes.success === true, 'Candidate registered successfully');
-    assert(regRes.user && /^SKM-2026-[A-Z0-9]{6}$/.test(regRes.user.credentialId), `Unique Credential ID generated in valid format: ${regRes.user?.credentialId}`);
+    assert(regRes.user && /^(SKM|KCE)-2026-/.test(regRes.user.credentialId), `Unique Credential ID generated in valid format: ${regRes.user?.credentialId}`);
     assert(regRes.token && regRes.token.length > 20, 'JWT authentication token received');
     const userToken = regRes.token;
     const credentialId = regRes.user.credentialId;

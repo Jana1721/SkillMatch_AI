@@ -17,7 +17,6 @@ import {
   Bot,
   User,
   Clock,
-  Send,
   Square,
   RefreshCw,
   FileText,
@@ -34,7 +33,11 @@ import {
   ArrowRight,
   UploadCloud,
   Check,
-  Briefcase
+  Briefcase,
+  AlertTriangle,
+  Radio,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -42,15 +45,17 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { ApiService } from '../services/api';
 import { StorageService } from '../utils/storage';
+import { InterviewMarksheetView } from '../components/interview/InterviewMarksheetView';
 
-// Interview States as mandated by Section 3.D
+// Interview States as mandated by Sections 1, 2, 4, and 7
 type InterviewState =
   | 'Ready'
   | 'Connecting'
+  | 'Introduction'
   | 'AI Speaking'
   | 'Listening'
   | 'Processing Answer'
-  | 'Asking Follow-up'
+  | 'Clarification / Retry'
   | 'Paused'
   | 'Completed'
   | 'Error';
@@ -83,16 +88,25 @@ export const AIInterview: React.FC = () => {
   const [turns, setTurns] = useState<any[]>([]);
   const [finalReport, setFinalReport] = useState<any | null>(null);
 
-  // Voice & Audio Controls
+  // Welcome Introduction & Retry Clarification State
+  const [welcomeIntroMessage, setWelcomeIntroMessage] = useState<string>('');
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
+  const [isRetryTurn, setIsRetryTurn] = useState<boolean>(false);
+  const [activeAttemptNumber, setActiveAttemptNumber] = useState<number>(1);
+
+  // Voice & Audio Controls (Voice-Only Answer Pipeline)
   const [isMuted, setIsMuted] = useState(false);
   const [isTtsSpeaking, setIsTtsSpeaking] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [hasRecordedAnswer, setHasRecordedAnswer] = useState(false);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const [speechTranscript, setSpeechTranscript] = useState<string>('');
   const [interimSpeech, setInterimSpeech] = useState<string>('');
   const [micSupported, setMicSupported] = useState(true);
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
+  const [micErrorMessage, setMicErrorMessage] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(true);
-  const [showTextFallback, setShowTextFallback] = useState(false);
-  const [textFallbackInput, setTextFallbackInput] = useState('');
   const [activeHint, setActiveHint] = useState<string | null>(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
 
@@ -108,31 +122,58 @@ export const AIInterview: React.FC = () => {
   const [pastEvaluations, setPastEvaluations] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Refs for Speech Recognition & Audio
+  // Preparation Questions Bank
+  const [prepQuestions, setPrepQuestions] = useState<any[]>([]);
+  const [loadingPrep, setLoadingPrep] = useState(false);
+
+  // Refs for Speech Recognition, MediaRecorder & Audio Chunks
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
   const turnStartTimeRef = useRef<number>(Date.now());
 
-  // Synchronize candidate resume on mount
+  // Synchronize candidate resume on mount and listen to updates
   useEffect(() => {
-    const saved = StorageService.getResumeAnalysis();
-    if (saved) {
-      setActiveResume(saved);
-      if (saved.targetRole) setTargetRole(saved.targetRole);
-    } else {
+    const fetchCurrentCandidateResume = () => {
       ApiService.getCurrentResume()
-        .then((res) => {
-          if (res.success && res.resume) {
-            try {
-              const parsed = JSON.parse(res.resume.analysis_json);
-              setActiveResume(parsed);
-              StorageService.setResumeAnalysis(parsed);
-              if (parsed.targetRole) setTargetRole(parsed.targetRole);
-            } catch (e) {}
+        .then((res: any) => {
+          const analysisData = res.analysis || (res.resume && JSON.parse(res.resume.analysis_json));
+          if (res.success && analysisData) {
+            const enrichedResume = {
+              ...analysisData,
+              id: res.resume?.id || analysisData.id,
+              parsedData: analysisData.parsedData || (res.resume?.parsed_json ? JSON.parse(res.resume.parsed_json) : null)
+            };
+            setActiveResume(enrichedResume);
+            StorageService.setResumeAnalysis(enrichedResume);
+            if (analysisData.targetRole) setTargetRole(analysisData.targetRole);
+          } else {
+            setActiveResume(null);
           }
         })
-        .catch(() => {});
-    }
+        .catch(() => {
+          const saved = StorageService.getResumeAnalysis();
+          if (saved && saved.parsedData) {
+            setActiveResume(saved);
+            if (saved.targetRole) setTargetRole(saved.targetRole);
+          } else {
+            setActiveResume(null);
+          }
+        });
+    };
+
+    fetchCurrentCandidateResume();
+
+    const handleStorageChange = () => {
+      fetchCurrentCandidateResume();
+    };
+
+    window.addEventListener('skillmatch-storage-change', handleStorageChange);
+    return () => {
+      window.removeEventListener('skillmatch-storage-change', handleStorageChange);
+    };
   }, []);
 
   const handleUploadResumeFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -167,7 +208,7 @@ export const AIInterview: React.FC = () => {
     }
   };
 
-  // 1. Initialize Speech Recognition Support
+  // 1. Initialize Speech Recognition Support for Voice-Only Answers
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -178,6 +219,7 @@ export const AIInterview: React.FC = () => {
 
       recognition.onstart = () => {
         setMicPermission('granted');
+        setMicErrorMessage(null);
       };
 
       recognition.onresult = (event: any) => {
@@ -200,14 +242,17 @@ export const AIInterview: React.FC = () => {
         console.warn('SpeechRecognition error:', event.error);
         if (event.error === 'not-allowed') {
           setMicPermission('denied');
-          showToast('Microphone access denied. Please enable microphone permissions or use text fallback.', 'error');
-          setShowTextFallback(true);
+          setMicErrorMessage('Microphone access was denied. Please allow microphone permissions in your browser URL bar.');
+        } else if (event.error === 'no-speech') {
+          // Normal silence, keep waiting
+        } else if (event.error === 'network') {
+          setMicErrorMessage('Voice transcription network warning. Please check your connection.');
         }
       };
 
       recognition.onend = () => {
-        // Auto restart if still in Listening state and not muted
-        if (interviewState === 'Listening' && !isMuted) {
+        // Auto restart only if still actively recording and not muted
+        if (isRecording && !isMuted) {
           try {
             recognition.start();
           } catch (e) {}
@@ -217,7 +262,7 @@ export const AIInterview: React.FC = () => {
       recognitionRef.current = recognition;
     } else {
       setMicSupported(false);
-      setShowTextFallback(true);
+      setMicErrorMessage('Your browser does not support the Web Speech API. Please use Google Chrome, Microsoft Edge, or a modern Chromium browser.');
     }
 
     return () => {
@@ -230,15 +275,54 @@ export const AIInterview: React.FC = () => {
         window.speechSynthesis.cancel();
       }
       if (timerRef.current) clearInterval(timerRef.current);
+      if (recordedAudioUrl) {
+        URL.revokeObjectURL(recordedAudioUrl);
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
     };
-  }, []);
+  }, [isRecording, isMuted]);
 
-  // 2. Fetch Interview History when tab changes
+  // 2. Fetch Interview History & Prep Questions when tab changes
   useEffect(() => {
     if (activeTab === 'history') {
       loadHistory();
+    } else if (activeTab === 'prep') {
+      loadPrepQuestions();
     }
-  }, [activeTab]);
+  }, [activeTab, targetRole]);
+
+  const loadPrepQuestions = async () => {
+    setLoadingPrep(true);
+    try {
+      const res = await ApiService.getInterviewQuestions(targetRole);
+      if (res.success && res.questions) {
+        const list = res.questions.allQuestions || [
+          ...(res.questions.introQuestions || []),
+          ...(res.questions.projectQuestions || []),
+          ...(res.questions.javaQuestions || []),
+          ...(res.questions.dsaQuestions || []),
+          ...(res.questions.sqlQuestions || []),
+          ...(res.questions.serviceNowQuestions || []),
+          ...(res.questions.behavioralQuestions || []),
+          ...(res.questions.personalHrQuestions || []),
+          ...(res.questions.companyHrQuestions || []),
+          ...(res.questions.situationalQuestions || []),
+          ...(res.questions.fresherQuestions || []),
+          ...(res.questions.criticalThinkingQuestions || []),
+          ...(res.questions.teamworkQuestions || []),
+          ...(res.questions.scenarioQuestions || []),
+          ...(res.questions.certificationQuestions || [])
+        ];
+        setPrepQuestions(list);
+      }
+    } catch (e) {
+      console.warn('Failed to load prep questions:', e);
+    } finally {
+      setLoadingPrep(false);
+    }
+  };
 
   const loadHistory = async () => {
     setLoadingHistory(true);
@@ -254,9 +338,9 @@ export const AIInterview: React.FC = () => {
     }
   };
 
-  // 3. Question Timer
+  // 3. Question Timer while recording spoken answer
   useEffect(() => {
-    if (interviewState === 'Listening') {
+    if (isRecording) {
       timerRef.current = setInterval(() => {
         setTimerSeconds((prev) => prev + 1);
       }, 1000);
@@ -266,7 +350,7 @@ export const AIInterview: React.FC = () => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [interviewState]);
+  }, [isRecording]);
 
   // 4. Natural Text-to-Speech Output
   const speakQuestionAloud = (text: string, onFinished?: () => void) => {
@@ -278,7 +362,6 @@ export const AIInterview: React.FC = () => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
-    // Prioritize natural sounding english voices
     const naturalVoice = voices.find(
       (v) =>
         v.lang.startsWith('en') &&
@@ -302,74 +385,173 @@ export const AIInterview: React.FC = () => {
       if (onFinished) {
         onFinished();
       } else {
-        startListeningToCandidate();
+        startRecordingAudio();
       }
     };
 
     utterance.onerror = () => {
       setIsTtsSpeaking(false);
-      startListeningToCandidate();
+      startRecordingAudio();
     };
 
     window.speechSynthesis.speak(utterance);
   };
 
-  // 5. Start Listening through Microphone
-  const startListeningToCandidate = () => {
-    setInterviewState('Listening');
-    setStateMessage('Listening to your spoken answer... Speak naturally into your microphone.');
+  // 5. Audio Capture Pipeline: Start Voice Recording
+  const startRecordingAudio = async () => {
+    setMicErrorMessage(null);
     setSpeechTranscript('');
     setInterimSpeech('');
-    setTimerSeconds(0);
-    turnStartTimeRef.current = Date.now();
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl);
+      setRecordedAudioUrl(null);
+    }
+    audioChunksRef.current = [];
+    setHasRecordedAnswer(false);
 
-    if (recognitionRef.current && micSupported) {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        // Recognition already started or error
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      setMicPermission('granted');
+      setMicSupported(true);
+
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+        else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+        else mimeType = '';
       }
+
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        if (audioChunksRef.current.length > 0) {
+          const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
+          const url = URL.createObjectURL(blob);
+          setRecordedAudioUrl(url);
+          setHasRecordedAnswer(true);
+        }
+      };
+
+      mediaRecorder.start(250);
+      setIsRecording(true);
+      setInterviewState('Listening');
+      setStateMessage('Listening to your spoken answer... Speak naturally into your microphone.');
+      setTimerSeconds(0);
+      turnStartTimeRef.current = Date.now();
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+        } catch (e) {}
+      }
+    } catch (err: any) {
+      console.error('[Microphone Access Error]', err);
+      setIsRecording(false);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setMicPermission('denied');
+        setMicErrorMessage('Microphone access was denied. Please allow microphone permissions in your browser URL bar, then click "Request Microphone Access".');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setMicSupported(false);
+        setMicErrorMessage('No microphone device was detected on your computer. Please connect a working microphone or headset.');
+      } else {
+        setMicErrorMessage(err.message || 'Failed to access microphone. Please check your system audio settings.');
+      }
+      showToast('Microphone access failed. Spoken voice answers are mandatory.', 'error');
     }
   };
 
-  // Stop recognition
-  const stopListening = () => {
+  // Stop Voice Recording
+  const stopRecordingAudio = () => {
+    setIsRecording(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch (e) {}
     }
+    setStateMessage('Recording captured! Review your spoken answer below, re-record if needed, or submit for evaluation.');
   };
 
-  // 6. Action: Start Interview Session
+  // Re-record Spoken Answer
+  const handleReRecordAudio = () => {
+    if (recordedAudioUrl) {
+      URL.revokeObjectURL(recordedAudioUrl);
+      setRecordedAudioUrl(null);
+    }
+    setSpeechTranscript('');
+    setInterimSpeech('');
+    setHasRecordedAnswer(false);
+    setMicErrorMessage(null);
+    startRecordingAudio();
+  };
+
+  // Request Microphone Permission
+  const handleRequestMicPermission = async () => {
+    setMicErrorMessage(null);
+    await startRecordingAudio();
+  };
+
+  // 6. Action: Start Interview Session Grounded in Candidate's Own Resume
   const handleStartInterview = async () => {
+    if (!activeResume || !activeResume.parsedData) {
+      showToast('Please upload your resume first before starting the AI Voice Interview.', 'error');
+      resumeFileInputRef.current?.click();
+      return;
+    }
+
     setInterviewState('Connecting');
-    setStateMessage('Connecting to AI Interview Engine and configuring tailored agenda...');
+    setStateMessage('Connecting to AI Interview Engine and configuring personalized questions from your resume...');
     setFinalReport(null);
     setTurns([]);
+    setIsRetryTurn(false);
+    setActiveAttemptNumber(1);
+    setRetryNotice(null);
+    setMicErrorMessage(null);
 
     try {
-      const currentResumeData = activeResume || StorageService.getResumeAnalysis();
       const res = await ApiService.startInteractiveInterview({
         targetRole,
         interviewType: interviewType === 'Mixed' ? 'Mixed Interview' : `${interviewType} Interview`,
         experienceLevel,
         difficulty,
         totalQuestions,
-        resumeData: currentResumeData || undefined
+        resumeId: activeResume.id || undefined
       });
 
-      if (res.success) {
+      if (res.success && res.currentQuestion) {
         setSessionId(res.sessionId);
         setCurrentQuestion(res.currentQuestion);
         setQuestionNumber(1);
         setTotalSessionQuestions(res.progress?.total || totalQuestions);
+        const candidateName = user?.name || activeResume?.parsedData?.contact?.name;
+        const welcomeText = res.welcomeMessage || (candidateName ? `Hi, ${candidateName}! Welcome to the AI Interview.` : 'Hi! Welcome to the AI Interview.');
+        setWelcomeIntroMessage(welcomeText);
 
-        // Speak professional greeting and first question
-        const speechGreeting = `${res.welcomeMessage} Now, let us begin with your first question. ${res.currentQuestion.questionText}`;
-        speakQuestionAloud(speechGreeting, () => {
-          startListeningToCandidate();
+        // Sequence: Display welcome message before Question 1, present Question 1, start voice answering
+        setInterviewState('AI Speaking');
+        setStateMessage('AI Interviewer is speaking Question 1 aloud...');
+
+        speakQuestionAloud(res.currentQuestion.questionText, () => {
+          startRecordingAudio();
         });
+      } else {
+        throw new Error(res.error || 'Failed to initialize personalized question.');
       }
     } catch (err: any) {
       setInterviewState('Error');
@@ -378,62 +560,111 @@ export const AIInterview: React.FC = () => {
     }
   };
 
-  // 7. Action: Submit Candidate Answer
-  const handleAnswerSubmit = async (overrideAnswer?: string) => {
-    const candidateAnswer = overrideAnswer || speechTranscript || textFallbackInput;
+  // 6b. Proceed to Question 1 after Professional Introduction Briefing
+  const handleBeginFirstQuestion = () => {
+    if (!currentQuestion) return;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setInterviewState('AI Speaking');
+    setStateMessage('AI Interviewer is asking Question 1 aloud...');
 
-    if (!candidateAnswer || candidateAnswer.trim().length === 0) {
-      showToast('Please speak into your microphone or type an answer before proceeding.', 'error');
+    const speechQ1 = currentQuestion.questionText;
+    speakQuestionAloud(speechQ1, () => {
+      startRecordingAudio();
+    });
+  };
+
+  // 7. Action: Submit Candidate Spoken Answer (Voice-Only)
+  const handleAnswerSubmit = async () => {
+    if (isRecording) {
+      stopRecordingAudio();
+    }
+
+    const candidateAnswer = speechTranscript.trim();
+
+    // Validation: Prevent empty or silent submissions
+    if (!candidateAnswer || candidateAnswer.length === 0) {
+      setMicErrorMessage('Empty or silent recording detected. No spoken words were transcribed. Please ensure your microphone is unmuted, speak clearly, and record your answer again.');
+      showToast('Empty or silent recording. Spoken answer is required.', 'error');
       return;
     }
 
-    stopListening();
+    // Guard: Prevent duplicate submission attempts
+    if (isSubmittingAnswer) return;
+    setIsSubmittingAnswer(true);
+
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
     setInterviewState('Processing Answer');
-    setStateMessage('AI Interviewer is evaluating your answer against industry competencies...');
+    setStateMessage('AI Interviewer is transcribing your spoken answer and evaluating for relevance, correctness, depth, and clarity...');
 
-    const durationSeconds = Math.max(10, Math.round((Date.now() - turnStartTimeRef.current) / 1000));
+    const durationSeconds = Math.max(5, Math.round((Date.now() - turnStartTimeRef.current) / 1000));
 
     try {
-      const res = await ApiService.submitInteractiveAnswer(sessionId!, candidateAnswer.trim(), durationSeconds);
+      const res = await ApiService.submitInteractiveAnswer(sessionId!, candidateAnswer, durationSeconds);
 
       if (res.success) {
-        // Record completed turn
+        // Clean up audio blob URL to prevent unnecessary memory/audio retention
+        if (recordedAudioUrl) {
+          URL.revokeObjectURL(recordedAudioUrl);
+          setRecordedAudioUrl(null);
+        }
+        setHasRecordedAnswer(false);
+
+        // Section 4 / 5: Handle Irrelevant Answer with Polite Redirection & Single Retry
+        if (res.retryOpportunity) {
+          setIsRetryTurn(true);
+          setActiveAttemptNumber(2);
+          const redirectFeedback = res.spokenFeedback || 'Your answer does not fit this question. Please try answering the question asked.';
+          setRetryNotice(redirectFeedback);
+          setInterviewState('Clarification / Retry');
+          setStateMessage('Clarification Opportunity: ' + redirectFeedback + ' (Attempt 2 of 2).');
+          setSpeechTranscript('');
+          setInterimSpeech('');
+
+          // Speak polite redirection feedback aloud
+          speakQuestionAloud(redirectFeedback, () => {
+            startRecordingAudio();
+          });
+          return;
+        }
+
+        // Finalize turn
+        setIsRetryTurn(false);
+        setActiveAttemptNumber(1);
+        setRetryNotice(null);
+
         const newTurn = {
           turnNumber: questionNumber,
           question: currentQuestion,
-          answer: candidateAnswer.trim(),
+          answer: candidateAnswer,
           evaluation: res.evaluation
         };
         setTurns((prev) => [...prev, newTurn]);
 
         if (res.isCompleted) {
-          // Interview is completed
+          // Interview completed -> Section 6 Marksheet
           setInterviewState('Completed');
-          setStateMessage('Interview completed! Your personalized evaluation report has been generated.');
+          setStateMessage('Interview completed! Your official marksheet, mistake analysis, and personalized learning plan have been generated.');
           setFinalReport(res.finalReport);
-          showToast('Voice interview completed! Evaluation saved to your account.', 'success');
+          showToast('Voice interview completed! Marksheet saved to your account.', 'success');
           speakQuestionAloud(
-            'Thank you for your time today. That concludes our interview session. Your comprehensive evaluation report and competency scorecard have been generated and saved to your candidate account.'
+            'Thank you for your time today. That concludes our interview session. Your official marksheet, category performance, and personalized learning plan have been generated and saved to your account.'
           );
         } else {
           // Advance to next question
           setCurrentQuestion(res.nextQuestion);
           setQuestionNumber((prev) => prev + 1);
           setSpeechTranscript('');
-          setTextFallbackInput('');
           setInterimSpeech('');
           setActiveHint(null);
 
-          // Transition speech
-          const transitionPrefix = res.evaluation?.conciseFeedback
-            ? `${res.evaluation.conciseFeedback}. Moving to the next question. `
-            : 'Thank you. Let us proceed to the next question. ';
+          const transitionPrefix = res.spokenFeedback || res.evaluation?.conciseFeedback
+            ? `${res.spokenFeedback || res.evaluation.conciseFeedback} Moving to your next question.`
+            : 'Thank you. Let us proceed to the next question.';
 
           const nextSpeech = `${transitionPrefix} ${res.nextQuestion.questionText}`;
           speakQuestionAloud(nextSpeech, () => {
-            startListeningToCandidate();
+            startRecordingAudio();
           });
         }
       }
@@ -441,21 +672,24 @@ export const AIInterview: React.FC = () => {
       setInterviewState('Error');
       setStateMessage(err.message || 'Failed to evaluate response.');
       showToast(err.message || 'Turn evaluation failed', 'error');
+    } finally {
+      setIsSubmittingAnswer(false);
     }
   };
 
   // 8. Action: Repeat Question
   const handleRepeatQuestion = () => {
     if (!currentQuestion) return;
+    if (isRecording) stopRecordingAudio();
     speakQuestionAloud(currentQuestion.questionText, () => {
-      startListeningToCandidate();
+      startRecordingAudio();
     });
   };
 
   // 9. Action: Skip Question
   const handleSkipQuestion = async () => {
     if (!sessionId) return;
-    stopListening();
+    if (isRecording) stopRecordingAudio();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
     setInterviewState('Processing Answer');
@@ -471,10 +705,10 @@ export const AIInterview: React.FC = () => {
           setCurrentQuestion(res.nextQuestion);
           setQuestionNumber((prev) => prev + 1);
           setSpeechTranscript('');
-          setTextFallbackInput('');
+          setInterimSpeech('');
           setActiveHint(null);
           speakQuestionAloud(`Question skipped. Let us continue with the next question. ${res.nextQuestion.questionText}`, () => {
-            startListeningToCandidate();
+            startRecordingAudio();
           });
         }
       }
@@ -490,7 +724,7 @@ export const AIInterview: React.FC = () => {
       setInterviewState('Ready');
       return;
     }
-    stopListening();
+    if (isRecording) stopRecordingAudio();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
     setInterviewState('Processing Answer');
@@ -528,11 +762,11 @@ export const AIInterview: React.FC = () => {
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">AI Voice Interview Agent</h1>
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-indigo-100 text-indigo-700 tracking-wide uppercase">
-              Voice-First Engine
+              Voice-Only Engine
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Real-time human-like interviewer that speaks questions aloud, listens to your spoken answers, and delivers evidence-based evaluations.
+            Voice-first interviewer that speaks questions aloud, records your spoken answers through the microphone, and provides transparent marksheet evaluations.
           </p>
         </div>
 
@@ -581,7 +815,7 @@ export const AIInterview: React.FC = () => {
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Configure Your Interview Session</h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    The AI Voice Interviewer analyzes your uploaded resume to ask personalized questions regarding your actual projects and skills.
+                    The AI Voice Interviewer personalizes questions from your uploaded resume, covering your actual projects, tech stack, and coursework.
                   </p>
                 </div>
 
@@ -607,7 +841,7 @@ export const AIInterview: React.FC = () => {
                         <div>
                           <div className="flex items-center gap-2">
                             <h3 className="text-sm font-bold text-slate-900">
-                              {activeResume.parsedData?.contact?.name || user?.name || 'Candidate Resume Grounded'}
+                              {activeResume.parsedData?.contact?.name || user?.name || 'Candidate Resume Connected'}
                             </h3>
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -651,7 +885,7 @@ export const AIInterview: React.FC = () => {
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-500 italic">No specific project titles isolated in resume. Open software architecture questions will be asked.</p>
+                        <p className="text-xs text-slate-500 italic">No specific project titles isolated in resume. Open software engineering questions will be tailored to your stated coursework.</p>
                       )}
                     </div>
 
@@ -677,7 +911,7 @@ export const AIInterview: React.FC = () => {
                     )}
 
                     <p className="text-[11px] text-emerald-900 bg-white/70 p-2 rounded-lg border border-emerald-200/60 font-medium">
-                      🎯 <strong>Resume Grounding Active:</strong> The AI Voice Interviewer will specifically ask you to introduce your background, defend what you built in <strong>"{activeResume.parsedData?.projects?.[0]?.name || 'your projects'}"</strong>, and test your verified technical skills.
+                      🎯 <strong>Resume-Aware Interview:</strong> The AI will ask personalized questions based on your background, defending what you built in <strong>"{activeResume.parsedData?.projects?.[0]?.name || 'your projects'}"</strong> and verifying your technical skills. Spoken voice answers are mandatory.
                     </p>
                   </div>
                 ) : (
@@ -691,7 +925,7 @@ export const AIInterview: React.FC = () => {
                           Upload Candidate Resume for Personalized Voice Interviewing
                         </h3>
                         <p className="text-xs text-amber-900">
-                          Upload your resume (PDF, DOCX, or TXT) so the AI Interviewer can analyze your actual projects, tech stack, and coursework to generate personalized, non-generic questions.
+                          Upload your resume (PDF, DOCX, or TXT) so the AI Interviewer can extract your actual projects, tech stack, and coursework to generate personalized questions.
                         </p>
                       </div>
                     </div>
@@ -796,7 +1030,7 @@ export const AIInterview: React.FC = () => {
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span>Evaluation report saved to your candidate account ID</span>
+                    <span>Voice-only answers &bull; Transparent marksheet evaluation</span>
                   </div>
                   <Button onClick={handleStartInterview} className="px-6 py-3 font-bold flex items-center gap-2 text-sm">
                     <Play className="w-4 h-4 fill-white" />
@@ -813,7 +1047,7 @@ export const AIInterview: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-bold text-sm text-white">AI Voice Interaction</h3>
-                    <p className="text-[11px] text-indigo-200">Microphone & Audio Setup</p>
+                    <p className="text-[11px] text-indigo-200">Mandatory Microphone Setup</p>
                   </div>
                 </div>
 
@@ -821,51 +1055,98 @@ export const AIInterview: React.FC = () => {
                   <div className="flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Two-Way Spoken Conversation:</strong> The AI speaks every question aloud, then activates your mic for you to answer naturally.
+                      <strong>Voice-Only Answering:</strong> You answer every question directly using your microphone. Typed answers are disabled.
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Dynamic Follow-ups:</strong> If an answer is brief or misses technical concepts, the AI asks intelligent follow-up questions.
+                      <strong>Audio Review & Playback:</strong> Listen back to your recorded spoken answer before submitting, or re-record if needed.
                     </span>
                   </div>
                   <div className="flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Private & Ethical:</strong> Audio is processed live and not retained. Evaluated strictly against observable answer heuristics.
+                      <strong>Intelligent Clarifications:</strong> If an answer is off-topic, the AI offers one focused retry opportunity.
                     </span>
                   </div>
                 </div>
 
                 <div className="bg-white/10 rounded-xl p-3 border border-white/10 text-center">
                   <span className="text-[11px] text-slate-300">Microphone Status</span>
-                  <div className="flex items-center justify-center gap-2 font-bold text-xs text-emerald-400 mt-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>{micSupported ? 'Ready for Voice Capture' : 'Microphone Not Detected (Text Mode Available)'}</span>
+                  <div className="flex items-center justify-center gap-2 font-bold text-xs mt-1">
+                    <span className={`w-2 h-2 rounded-full ${micSupported && micPermission !== 'denied' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                    <span className={micSupported && micPermission !== 'denied' ? 'text-emerald-400' : 'text-rose-300'}>
+                      {micPermission === 'denied'
+                        ? 'Microphone Blocked (Permission Needed)'
+                        : micSupported
+                        ? 'Microphone Ready for Voice Answers'
+                        : 'No Microphone Detected'}
+                    </span>
                   </div>
                 </div>
               </Card>
             </div>
           )}
 
-          {/* State 2 & 3: Active Voice Interview (AI Speaking, Listening, Processing) */}
-          {interviewState !== 'Ready' && interviewState !== 'Completed' && (
+          {/* State: Error State with Diagnostic Message and Retry Option */}
+          {interviewState === 'Error' && (
+            <Card className="p-8 bg-white border border-rose-200 rounded-3xl shadow-sm text-center max-w-xl mx-auto space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">AI Interview Session Issue</h3>
+                <p className="text-xs text-rose-600 font-medium mt-1 max-w-md mx-auto">{stateMessage}</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <Button
+                  onClick={handleStartInterview}
+                  className="px-5 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-2 shadow-sm"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Retry Interview Generation</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setInterviewState('Ready')}
+                  className="px-4 py-2.5 text-xs font-bold border-slate-200"
+                >
+                  <span>Return to Setup</span>
+                </Button>
+                <Button
+                  onClick={() => resumeFileInputRef.current?.click()}
+                  className="px-4 py-2.5 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Upload / Change Resume</span>
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* State 2 & 3: Active Voice Interview (Introduction, AI Speaking, Listening, Clarification / Retry, Processing) */}
+          {interviewState !== 'Ready' && interviewState !== 'Completed' && interviewState !== 'Error' && (
             <div className="space-y-6">
               {/* Top Session Progress Bar */}
               <div className="flex items-center justify-between bg-white px-5 py-3 rounded-2xl border border-slate-200 shadow-sm text-xs">
                 <div className="flex items-center gap-3">
                   <span className="font-bold text-slate-900">
                     Question {questionNumber} of {totalSessionQuestions}
+                    {isRetryTurn && (
+                      <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                        Attempt 2 of 2 (Clarification)
+                      </span>
+                    )}
                   </span>
                   <span className="text-slate-300">|</span>
                   <span className="text-slate-500 font-medium">Role: {targetRole}</span>
                 </div>
 
                 <div className="flex items-center gap-4">
-                  {interviewState === 'Listening' && (
-                    <div className="flex items-center gap-1.5 text-indigo-600 font-mono font-bold">
-                      <Clock className="w-3.5 h-3.5" />
+                  {isRecording && (
+                    <div className="flex items-center gap-1.5 text-rose-600 font-mono font-bold animate-pulse">
+                      <Radio className="w-3.5 h-3.5 text-rose-500" />
                       <span>{Math.floor(timerSeconds / 60)}:{(timerSeconds % 60).toString().padStart(2, '0')}</span>
                     </div>
                   )}
@@ -880,7 +1161,7 @@ export const AIInterview: React.FC = () => {
 
                   <button
                     onClick={handleEndInterviewEarly}
-                    className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg font-semibold border border-rose-200 transition-colors"
+                    className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg font-semibold border border-rose-200 transition-colors cursor-pointer"
                   >
                     End Interview
                   </button>
@@ -888,34 +1169,76 @@ export const AIInterview: React.FC = () => {
               </div>
 
               {/* Main Visualizer Stage */}
-              <Card className="p-8 sm:p-12 bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl shadow-xl border-slate-800 text-center relative overflow-hidden">
+              <Card className="p-5 sm:p-6 lg:p-7 bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl shadow-xl border-slate-800 text-center relative overflow-hidden">
                 {/* Background Glow */}
                 <div className="absolute inset-0 bg-radial-gradient from-indigo-500/10 to-transparent pointer-events-none" />
 
                 {/* Status Indicator Pill */}
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-bold tracking-wide uppercase mb-6">
-                  {interviewState === 'AI Speaking' && <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping" />}
-                  {interviewState === 'Listening' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />}
-                  {interviewState === 'Processing Answer' && <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />}
-                  <span>{interviewState}</span>
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-bold tracking-wide uppercase mb-3">
+                  {interviewState === 'Introduction' && (
+                    <>
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping" />
+                      <span>Introduction & Briefing</span>
+                    </>
+                  )}
+                  {interviewState === 'AI Speaking' && (
+                    <>
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping" />
+                      <span>AI Speaking Question</span>
+                    </>
+                  )}
+                  {interviewState === 'Listening' && isRecording && (
+                    <>
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                      <span className="text-rose-300">Recording Spoken Answer (Mic Active)</span>
+                    </>
+                  )}
+                  {interviewState === 'Listening' && !isRecording && hasRecordedAnswer && (
+                    <>
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                      <span className="text-emerald-300">Audio Recorded &bull; Ready to Review or Submit</span>
+                    </>
+                  )}
+                  {interviewState === 'Listening' && !isRecording && !hasRecordedAnswer && (
+                    <>
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                      <span>Ready for Your Spoken Answer</span>
+                    </>
+                  )}
+                  {interviewState === 'Clarification / Retry' && (
+                    <>
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-amber-300">Clarification Needed (Attempt 2 of 2)</span>
+                    </>
+                  )}
+                  {interviewState === 'Processing Answer' && (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                      <span>Evaluating Spoken Response</span>
+                    </>
+                  )}
                 </div>
 
                 {/* Dynamic Waveform Visualizer */}
-                <div className="flex items-center justify-center gap-1.5 h-16 my-4">
+                <div className="flex items-center justify-center gap-1.5 h-8 my-2">
                   {[40, 65, 85, 50, 95, 70, 45, 80, 60, 30, 90, 50, 75, 40].map((height, idx) => {
-                    const isActive = interviewState === 'AI Speaking' || interviewState === 'Listening';
+                    const isActive = interviewState === 'Introduction' || interviewState === 'AI Speaking' || isRecording;
                     return (
                       <div
                         key={idx}
                         className={`w-1.5 rounded-full transition-all duration-300 ${
-                          interviewState === 'AI Speaking'
+                          isRecording
+                            ? 'bg-rose-500'
+                            : interviewState === 'Introduction' || interviewState === 'AI Speaking'
                             ? 'bg-indigo-400'
-                            : interviewState === 'Listening'
+                            : interviewState === 'Clarification / Retry'
+                            ? 'bg-amber-400'
+                            : hasRecordedAnswer
                             ? 'bg-emerald-400'
                             : 'bg-slate-700'
                         }`}
                         style={{
-                          height: isActive ? `${Math.max(12, Math.random() * height)}px` : '8px',
+                          height: isActive ? `${Math.max(6, Math.random() * (height * 0.35))}px` : '4px',
                           opacity: isActive ? 0.9 : 0.3
                         }}
                       />
@@ -923,256 +1246,221 @@ export const AIInterview: React.FC = () => {
                   })}
                 </div>
 
-                {/* Question Prompt */}
-                <div className="max-w-2xl mx-auto space-y-3 mt-4">
-                  <div className="text-xs uppercase tracking-widest text-indigo-300 font-bold">
-                    {currentQuestion?.topic || 'Technical Competency'}
+                {/* Interview Stage: Welcome Message & Question Display */}
+                <div className="w-full max-w-5xl lg:max-w-6xl mx-auto space-y-2.5 mt-2">
+                  {/* Requirement 3: Personalized Welcome Message displayed before Question 1 only */}
+                  {questionNumber === 1 && (
+                    <div className="flex justify-center">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-400/25 text-xs sm:text-sm font-medium text-indigo-200">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <span>{welcomeIntroMessage || (user?.name ? `Hi, ${user.name}! Welcome to the AI Interview.` : 'Hi! Welcome to the AI Interview.')}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Clarification & Retry Notice Banner (if answer was off-topic) */}
+                  {isRetryTurn && retryNotice && (
+                    <div className="p-2.5 bg-amber-500/20 border border-amber-400/40 rounded-xl text-left backdrop-blur-sm space-y-1 max-w-2xl mx-auto">
+                      <span className="text-[11px] font-bold uppercase text-amber-300 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Interviewer Redirection & Clarification Opportunity:</span>
+                      </span>
+                      <p className="text-xs text-amber-100 font-medium leading-relaxed">
+                        {retryNotice}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Category & Step Info */}
+                  <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-wider text-indigo-300 font-bold">
+                    <span>Question {questionNumber} of {totalSessionQuestions}</span>
+                    <span>&bull;</span>
+                    <span>{currentQuestion?.category || currentQuestion?.topic || 'Technical Competency'}</span>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-white leading-relaxed">
-                    {currentQuestion?.questionText || 'Preparing next interview question...'}
-                  </h2>
+
+                  {/* Requirement 4: Display Each Interview Question on a Single Line */}
+                  <div className="w-full px-4 py-2.5 bg-white/5 rounded-xl border border-white/10 shadow-inner">
+                    <p
+                      className="text-sm sm:text-base font-semibold text-white tracking-normal text-center whitespace-normal lg:whitespace-nowrap lg:overflow-x-auto lg:scrollbar-none"
+                      title={currentQuestion?.questionText}
+                    >
+                      {currentQuestion?.questionText || 'Preparing next interview question...'}
+                    </p>
+                  </div>
                 </div>
 
                 {/* Subtitle / State Advice */}
                 <p className="text-xs text-slate-400 mt-4 max-w-md mx-auto">{stateMessage}</p>
 
-                {/* Spoken Answer Live Transcript */}
-                {(speechTranscript || interimSpeech) && showTranscript && (
-                  <div className="mt-6 max-w-xl mx-auto p-4 bg-white/5 border border-white/10 rounded-2xl text-left backdrop-blur-sm">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
+                {/* Microphone Error Alert Card */}
+                {micErrorMessage && (
+                  <div className="mt-4 max-w-xl mx-auto p-3.5 bg-rose-500/20 border border-rose-400/50 rounded-2xl text-left backdrop-blur-sm space-y-2">
+                    <div className="flex items-center gap-2 text-rose-300 text-xs font-bold uppercase">
+                      <AlertCircle className="w-4 h-4 text-rose-400" />
+                      <span>Microphone Warning</span>
+                    </div>
+                    <p className="text-xs text-rose-100 font-medium leading-relaxed">
+                      {micErrorMessage}
+                    </p>
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={handleRequestMicPermission}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Request Microphone Access</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recorded Audio Review Player */}
+                {recordedAudioUrl && !isRecording && interviewState !== 'Introduction' && (
+                  <div className="mt-6 max-w-lg mx-auto p-4 bg-white/10 border border-white/20 rounded-2xl text-left backdrop-blur-md space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-300 font-semibold">
                       <span className="flex items-center gap-1.5 text-emerald-400">
-                        <Mic className="w-3.5 h-3.5 animate-pulse" />
-                        <span>Live Candidate Speech Capture</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>Recorded Spoken Answer (Review before submitting)</span>
                       </span>
                     </div>
-                    <p className="text-sm text-slate-200 font-medium leading-relaxed">
+                    <audio
+                      src={recordedAudioUrl}
+                      controls
+                      className="w-full mt-1 rounded-xl"
+                    />
+                  </div>
+                )}
+
+                {/* Read-Only Spoken Answer Live Transcript Preview */}
+                {(speechTranscript || interimSpeech) && showTranscript && interviewState !== 'Introduction' && (
+                  <div className="mt-4 max-w-xl mx-auto p-4 bg-white/5 border border-white/10 rounded-2xl text-left backdrop-blur-sm space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
+                      <span className="flex items-center gap-1.5 text-emerald-400">
+                        <Mic className="w-3.5 h-3.5 animate-pulse" />
+                        <span>Spoken Transcript Preview (Read-Only)</span>
+                      </span>
+                      <span className="text-[10px] text-slate-500">Transcribed from your microphone</span>
+                    </div>
+                    <p className="text-sm text-slate-200 font-medium leading-relaxed select-text">
                       {speechTranscript}{' '}
                       <span className="text-indigo-300 italic">{interimSpeech}</span>
                     </p>
                   </div>
                 )}
 
-                {/* Action Buttons Under Visualizer */}
-                <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                  {interviewState === 'Listening' && (
-                    <Button
-                      onClick={() => handleAnswerSubmit()}
-                      className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-900/30 text-sm"
+                {/* Mandatory Voice-Only Action Controls */}
+                {interviewState !== 'Introduction' && (
+                  <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                    {/* Primary Voice Controls */}
+                    {isRecording ? (
+                      <Button
+                        onClick={stopRecordingAudio}
+                        className="px-6 py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-rose-900/40 text-sm animate-pulse cursor-pointer"
+                      >
+                        <Square className="w-4 h-4 fill-white" />
+                        <span>Stop Recording ({timerSeconds}s)</span>
+                      </Button>
+                    ) : hasRecordedAnswer ? (
+                      <>
+                        <Button
+                          onClick={handleAnswerSubmit}
+                          disabled={isSubmittingAnswer}
+                          className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-900/30 text-sm cursor-pointer disabled:opacity-60"
+                        >
+                          {isSubmittingAnswer ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>{isSubmittingAnswer ? 'Evaluating Answer...' : 'Submit Spoken Answer'}</span>
+                        </Button>
+
+                        <button
+                          type="button"
+                          onClick={handleReRecordAudio}
+                          className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-amber-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Re-record Answer</span>
+                        </button>
+                      </>
+                    ) : (
+                      <Button
+                        onClick={startRecordingAudio}
+                        className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-900/30 text-sm cursor-pointer"
+                      >
+                        <Mic className="w-4 h-4" />
+                        <span>Start Voice Recording</span>
+                      </Button>
+                    )}
+
+                    {/* Auxiliary Controls */}
+                    <button
+                      type="button"
+                      onClick={handleRepeatQuestion}
+                      className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Done Speaking (Submit Answer)</span>
-                    </Button>
-                  )}
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Repeat Question</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={handleRepeatQuestion}
-                    className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Repeat Question</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={handleSkipQuestion}
+                      className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      <SkipForward className="w-3.5 h-3.5" />
+                      <span>Skip Question</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={handleSkipQuestion}
-                    className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-                  >
-                    <SkipForward className="w-3.5 h-3.5" />
-                    <span>Skip Question</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={handleGetHint}
+                      className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-amber-300 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span>Hint</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={handleGetHint}
-                    className="px-4 py-2.5 bg-white/10 hover:bg-white/15 text-amber-300 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-                  >
-                    <HelpCircle className="w-3.5 h-3.5" />
-                    <span>Hint</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowTextFallback(!showTextFallback)}
-                    className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl text-xs font-medium transition-all"
-                  >
-                    {showTextFallback ? 'Hide Text Input' : 'Type Answer Instead'}
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTranscript(!showTranscript)}
+                      className="px-3.5 py-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Toggle Read-Only Transcript Preview"
+                    >
+                      {showTranscript ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showTranscript ? 'Hide Transcript' : 'Show Transcript'}</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Contextual Hint Display */}
-                {activeHint && (
+                {activeHint && interviewState !== 'Introduction' && (
                   <div className="mt-4 max-w-lg mx-auto p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200">
                     💡 <strong>Interviewer Hint:</strong> {activeHint}
                   </div>
                 )}
               </Card>
-
-              {/* Optional Text Fallback Drawer for Accessibility */}
-              {showTextFallback && (
-                <Card className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Keyboard / Accessibility Answer Input
-                    </span>
-                    <span className="text-[11px] text-slate-400">Optional text fallback</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <textarea
-                      rows={2}
-                      value={textFallbackInput}
-                      onChange={(e) => setTextFallbackInput(e.target.value)}
-                      placeholder="Type your answer here if your microphone is unavailable..."
-                      className="flex-1 p-3 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-600 focus:bg-slate-50"
-                    />
-                    <Button
-                      onClick={() => handleAnswerSubmit(textFallbackInput)}
-                      disabled={!textFallbackInput.trim() || interviewState === 'Processing Answer'}
-                      className="px-4 self-end py-2.5 text-xs font-bold"
-                    >
-                      <Send className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </Card>
-              )}
             </div>
           )}
 
-          {/* State 4: Completed Interview & Performance Scorecard */}
+          {/* State 4: Completed Interview & Official Section 6 Marksheet */}
           {interviewState === 'Completed' && finalReport && (
             <div className="space-y-6 animate-in fade-in">
-              {/* Header Banner */}
-              <Card className="p-8 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-3xl shadow-xl border-0 space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-bold tracking-wide uppercase">
-                      Official Candidate Scorecard
-                    </span>
-                    <h2 className="text-2xl sm:text-3xl font-black mt-2">Interview Performance Evaluation</h2>
-                    <p className="text-xs text-indigo-200 mt-1">
-                      Candidate Credential ID: <strong className="text-white font-mono">{user?.credentialId || 'SKM-2026-ACTIVE'}</strong> &bull; Target Role: {targetRole}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
-                    <button
-                      onClick={() => window.print()}
-                      className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>Print Scorecard</span>
-                    </button>
-                    <Button onClick={() => setInterviewState('Ready')} variant="outline" className="text-xs bg-white text-indigo-900 hover:bg-slate-100 font-bold">
-                      Start Another Session
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Key Score Matrix */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-white/10">
-                  <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10 text-center">
-                    <span className="text-[11px] text-indigo-200 uppercase tracking-wider font-semibold">Overall Score</span>
-                    <div className="text-3xl sm:text-4xl font-black text-white mt-1">
-                      {finalReport.overallScore || 78}<span className="text-lg text-indigo-300">/100</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10 text-center">
-                    <span className="text-[11px] text-indigo-200 uppercase tracking-wider font-semibold">Communication</span>
-                    <div className="text-3xl sm:text-4xl font-black text-white mt-1">
-                      {finalReport.performanceDimensions?.communication || 80}%
-                    </div>
-                  </div>
-
-                  <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10 text-center">
-                    <span className="text-[11px] text-indigo-200 uppercase tracking-wider font-semibold">Technical Depth</span>
-                    <div className="text-3xl sm:text-4xl font-black text-white mt-1">
-                      {finalReport.performanceDimensions?.technicalKnowledge || 75}%
-                    </div>
-                  </div>
-
-                  <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10 text-center">
-                    <span className="text-[11px] text-indigo-200 uppercase tracking-wider font-semibold">Problem Solving</span>
-                    <div className="text-3xl sm:text-4xl font-black text-white mt-1">
-                      {finalReport.performanceDimensions?.problemSolving || 82}%
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Strengths & Improvement Areas */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="p-6 bg-white border border-slate-200 rounded-2xl space-y-4">
-                  <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <span>Demonstrated Strengths</span>
-                  </div>
-                  <ul className="space-y-2.5 text-xs text-slate-600">
-                    {(finalReport.strongAreas || [
-                      'Strong clarity when articulating OOP principles and modular design',
-                      'Accurate explanation of relational database joins and transaction boundaries',
-                      'Structured communication cadence without excessive filler pauses'
-                    ]).map((s: string, idx: number) => (
-                      <li key={idx} className="flex items-start gap-2 bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-100">
-                        <span className="text-emerald-600 font-bold">•</span>
-                        <span>{s}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-
-                <Card className="p-6 bg-white border border-slate-200 rounded-2xl space-y-4">
-                  <div className="flex items-center gap-2 text-amber-700 font-bold text-sm">
-                    <AlertCircle className="w-5 h-5 text-amber-600" />
-                    <span>Areas Requiring Targeted Practice</span>
-                  </div>
-                  <ul className="space-y-2.5 text-xs text-slate-600">
-                    {(finalReport.weakAreas || [
-                      'Provide concrete architectural examples from your own projects rather than textbook definitions',
-                      'Deepen knowledge of microservice resilience patterns (e.g. circuit breakers, connection pools)'
-                    ]).map((w: string, idx: number) => (
-                      <li key={idx} className="flex items-start gap-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-100">
-                        <span className="text-amber-600 font-bold">•</span>
-                        <span>{w}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
+              <InterviewMarksheetView
+                report={finalReport}
+                candidateName={user?.name}
+              />
+              <div className="flex justify-center pt-2">
+                <Button
+                  onClick={() => setInterviewState('Ready')}
+                  variant="outline"
+                  className="text-xs bg-white text-indigo-900 hover:bg-slate-100 font-bold px-6 py-2.5 cursor-pointer"
+                >
+                  Start Another Session
+                </Button>
               </div>
-
-              {/* Per-Question Answer & Model Evaluation Breakdown */}
-              <Card className="p-6 bg-white border border-slate-200 rounded-2xl space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-slate-900">Per-Question Answer Breakdown</h3>
-                  <span className="text-xs text-slate-500">Transparent Rubric Heuristics</span>
-                </div>
-
-                <div className="space-y-4">
-                  {(finalReport.questionBreakdown || turns).map((t: any, index: number) => (
-                    <div key={index} className="p-4 border border-slate-200 rounded-xl space-y-3 bg-slate-50/50">
-                      <div className="flex items-start justify-between gap-4">
-                        <span className="text-xs font-bold text-indigo-700 uppercase">Question {index + 1}: {t.topic || t.question?.topic}</span>
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-slate-200 text-slate-800">
-                          Score: {t.score || t.evaluation?.overallScore || 75}/100
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-slate-900">{t.questionText || t.question?.questionText}</p>
-
-                      <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs space-y-1">
-                        <span className="font-bold text-slate-500 uppercase text-[10px]">Your Spoken Response:</span>
-                        <p className="text-slate-700 italic">"{t.userAnswer || t.answer}"</p>
-                      </div>
-
-                      {t.evaluation?.betterAnswer && (
-                        <div className="bg-indigo-50/70 p-3 rounded-lg border border-indigo-100 text-xs space-y-1">
-                          <span className="font-bold text-indigo-700 uppercase text-[10px]">AI Suggested Model Answer:</span>
-                          <p className="text-indigo-950 font-medium">{t.evaluation.betterAnswer}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Card>
             </div>
           )}
         </div>
@@ -1209,41 +1497,71 @@ export const AIInterview: React.FC = () => {
             </div>
 
             <div className="space-y-3 pt-4 border-t border-slate-100">
-              <h3 className="text-sm font-bold text-slate-900">Essential Technical Questions by Category</h3>
-              <div className="space-y-2 text-xs">
-                <details className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
-                  <summary className="font-bold text-slate-800">Java & Spring Boot Core Questions</summary>
-                  <p className="mt-2 text-slate-600">
-                    Explain Spring Bean lifecycles, Hibernate lazy loading vs eager fetching, transaction isolation levels, and REST idempotency.
-                  </p>
-                </details>
-                <details className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
-                  <summary className="font-bold text-slate-800">System Design & Problem Solving</summary>
-                  <p className="mt-2 text-slate-600">
-                    How would you design a scalable URL shortener? Explain cache invalidation strategies and trade-offs between SQL and NoSQL.
-                  </p>
-                </details>
-                <details className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
-                  <summary className="font-bold text-slate-800">ServiceNow Platform Essentials</summary>
-                  <p className="mt-2 text-slate-600">
-                    Contrast Client Scripts with Business Rules. When should you use display business rules vs asynchronous business rules?
-                  </p>
-                </details>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900">Personalized Question Bank by Category ({prepQuestions.length || 15}+ Questions)</h3>
+                <span className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">12 Master Categories</span>
+              </div>
+              <div className="space-y-2 text-xs max-h-96 overflow-y-auto pr-1">
+                {loadingPrep ? (
+                  <div className="text-center py-6 text-slate-400">Loading personalized question bank...</div>
+                ) : prepQuestions.length > 0 ? (
+                  prepQuestions.map((q: any, idx: number) => (
+                    <details key={q.id || idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
+                      <summary className="font-bold text-slate-800 flex items-center justify-between">
+                        <span>{q.category}: {q.question || q.questionText}</span>
+                        <span className="text-[10px] text-slate-400 font-normal shrink-0 ml-2">{q.difficulty || 'Medium'}</span>
+                      </summary>
+                      {q.expectedConcepts && (
+                        <div className="mt-2 text-slate-600 text-[11px] space-y-1">
+                          <strong className="text-slate-700">Key Concepts:</strong>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {q.expectedConcepts.map((c: string, ci: number) => (
+                              <li key={ci}>{c}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {q.sampleAnswerStructure && (
+                        <p className="mt-1 text-slate-500 text-[11px]">
+                          <strong>Structure:</strong> {q.sampleAnswerStructure}
+                        </p>
+                      )}
+                    </details>
+                  ))
+                ) : (
+                  <>
+                    <details className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
+                      <summary className="font-bold text-slate-800">Resume & Introduction Questions</summary>
+                      <p className="mt-2 text-slate-600">Walk through your education, technical stack, and career motivation with structured verbal clarity.</p>
+                    </details>
+                    <details className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
+                      <summary className="font-bold text-slate-800">Dynamic Project Architecture & Bottlenecks</summary>
+                      <p className="mt-2 text-slate-600">Explain end-to-end component data flow, your personal technical contributions, and debugging methods.</p>
+                    </details>
+                    <details className="p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
+                      <summary className="font-bold text-slate-800">Java & Technical Fundamentals</summary>
+                      <p className="mt-2 text-slate-600">Explain OOP principles, Collections hashing and red-black treeification, and Spring Bean lifecycles.</p>
+                    </details>
+                  </>
+                )}
               </div>
             </div>
           </Card>
 
           <Card className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-4">
-            <h3 className="text-sm font-bold text-slate-900">Quick Interview Tips</h3>
+            <h3 className="text-sm font-bold text-slate-900">Voice Interview Guidelines</h3>
             <div className="space-y-3 text-xs text-slate-600">
+              <div className="p-3 bg-white rounded-xl border border-slate-200">
+                <strong>Voice-only answers:</strong> Typed answer input is removed. You must speak your answers into the microphone.
+              </div>
               <div className="p-3 bg-white rounded-xl border border-slate-200">
                 <strong>Speak at a steady pace:</strong> The AI interviewer evaluates clarity and pauses for reflection. Avoid rushing.
               </div>
               <div className="p-3 bg-white rounded-xl border border-slate-200">
-                <strong>Mention trade-offs:</strong> Senior interviewers look for candidates who understand pros and cons of technologies.
+                <strong>Review your recording:</strong> You can play back your audio before submitting, or re-record if needed.
               </div>
               <div className="p-3 bg-white rounded-xl border border-slate-200">
-                <strong>Admit gaps gracefully:</strong> If you don't know a concept, state how you would debug or look it up rather than fabricating.
+                <strong>Admit gaps gracefully:</strong> If you don't know a concept, state how you would investigate rather than fabricating.
               </div>
             </div>
 
@@ -1267,7 +1585,7 @@ export const AIInterview: React.FC = () => {
             <button
               onClick={loadHistory}
               disabled={loadingHistory}
-              className="px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
@@ -1321,9 +1639,9 @@ export const AIInterview: React.FC = () => {
                           setActiveTab('interview');
                         }}
                         variant="outline"
-                        className="text-xs py-1.5 px-3"
+                        className="text-xs py-1.5 px-3 cursor-pointer"
                       >
-                        View Full Scorecard
+                        View Full Marksheet
                       </Button>
                     </div>
                   </div>

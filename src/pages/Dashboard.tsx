@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
   Target,
-  Briefcase,
   TrendingUp,
   Award,
   Layers,
@@ -30,8 +29,6 @@ import { useToast } from '../context/ToastContext';
 import { ApiService } from '../services/api';
 import { StorageService } from '../utils/storage';
 import { calculateSkillGaps } from '../utils/skillGap';
-import { MOCK_JOBS } from '../data/jobs';
-import { calculateJobMatch } from '../utils/matching';
 import { DEFAULT_USER } from '../data/defaultUser';
 
 export const Dashboard: React.FC = () => {
@@ -76,11 +73,6 @@ export const Dashboard: React.FC = () => {
 
   const skillGaps = calculateSkillGaps(safeUser, safeUser.targetRole || 'Java Developer');
   const criticalGaps = skillGaps.filter((g) => g.gapLevel === 'High' || g.gapLevel === 'Medium');
-
-  // Match jobs
-  const matchingJobs = MOCK_JOBS.map((j) => ({ job: j, match: calculateJobMatch(j, safeUser) }))
-    .sort((a, b) => b.match.matchScore - a.match.matchScore)
-    .slice(0, 3);
 
   // Overall readiness calculation
   const resumeScore = activeResume?.scorecard?.overallScore || activeResume?.atsScore || 65;
@@ -322,86 +314,42 @@ export const Dashboard: React.FC = () => {
         </Card>
       </div>
 
-      {/* Secondary Grid: Skill Gaps & Recommended Matching Jobs */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Identified Skill Gaps Card */}
-        <Card className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Identified Critical Skill Gaps</h3>
-              <p className="text-xs text-slate-500">Benchmark comparison against {user.targetRole || 'Java Developer'} industry openings</p>
-            </div>
-            <button
-              onClick={() => navigate('/skill-gap')}
-              className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1"
-            >
-              <span>View Full Matrix</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+      {/* Identified Critical Skill Gaps */}
+      <Card className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Identified Critical Skill Gaps</h3>
+            <p className="text-xs text-slate-500">Benchmark comparison against {user.targetRole || 'Java Developer'} industry standards</p>
           </div>
+          <button
+            onClick={() => navigate('/skill-gap')}
+            className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1"
+          >
+            <span>View Full Matrix</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
-          <div className="space-y-2.5">
-            {criticalGaps.slice(0, 4).map((gap) => (
-              <div key={gap.skill} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-bold text-slate-800">{gap.skill}</span>
-                  <span className="text-[10px] text-slate-400 block">{gap.category} &bull; Required: {gap.industryLevel}</span>
-                </div>
-                <div className="text-right">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-black ${gap.gapLevel === 'High' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
-                    {gap.gapLevel} Gap
-                  </span>
-                </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {criticalGaps.slice(0, 4).map((gap) => (
+            <div key={gap.skill} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+              <div>
+                <span className="font-bold text-slate-800">{gap.skill}</span>
+                <span className="text-[10px] text-slate-400 block">{gap.category} &bull; Required: {gap.industryLevel}</span>
               </div>
-            ))}
-          </div>
-
-          <Button onClick={() => navigate('/learning')} variant="outline" className="w-full py-2 text-xs font-bold text-indigo-700">
-            Generate Dynamic Learning Roadmap to Bridge Gaps →
-          </Button>
-        </Card>
-
-        {/* Curated Career & Job Matches */}
-        <Card className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Recommended Job Openings</h3>
-              <p className="text-xs text-slate-500">Ranked by real candidate skill overlap percentage</p>
-            </div>
-            <button
-              onClick={() => navigate('/jobs')}
-              className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1"
-            >
-              <span>Browse All Jobs</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {matchingJobs.map(({ job, match }) => (
-              <div
-                key={job.id}
-                onClick={() => navigate('/jobs')}
-                className="p-3 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 rounded-xl flex items-center justify-between cursor-pointer transition-colors"
-              >
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">{job.title}</h4>
-                  <p className="text-[11px] text-slate-500">{job.company} &bull; {job.location} ({job.workMode})</p>
-                </div>
-                <div className="text-right">
-                  <span className="px-2.5 py-1 rounded-full text-xs font-black bg-indigo-100 text-indigo-800">
-                    {match.matchScore}% Match
-                  </span>
-                </div>
+              <div className="text-right">
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black ${gap.gapLevel === 'High' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {gap.gapLevel} Gap
+                </span>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
+        </div>
 
-          <Button onClick={() => navigate('/jobs')} className="w-full py-2 text-xs font-bold">
-            Explore Open Vacancies & Match External JDs →
-          </Button>
-        </Card>
-      </div>
+        <Button onClick={() => navigate('/learning')} variant="outline" className="w-full py-2 text-xs font-bold text-indigo-700">
+          Generate Dynamic Learning Roadmap to Bridge Gaps →
+        </Button>
+      </Card>
 
       {/* Recent Voice Interview Sessions */}
       <Card className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
